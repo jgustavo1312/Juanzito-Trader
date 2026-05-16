@@ -122,14 +122,19 @@ BINANCE_SECRET_KEY = os.environ.get("BINANCE_SECRET_KEY")
 
 @app.post("/order")
 async def order(request: Request):
-    data       = await request.json()
-    symbol     = data.get("symbol", "").upper()
-    side       = data.get("side", "").upper()
-    qty        = data.get("qty", "")
+    data   = await request.json()
+    symbol = data.get("symbol", "").upper()
+    side   = data.get("side", "").upper()
+    qty    = data.get("qty", "")
 
-    client = Client(BINANCE_API_KEY, BINANCE_SECRET_KEY)
     try:
-        result = client.order_market(symbol=symbol, side=side, quantity=qty)
+        client = Client(BINANCE_API_KEY, BINANCE_SECRET_KEY)
+        result = client.create_order(
+            symbol   = symbol,
+            side     = side,
+            type     = "MARKET",
+            quantity = qty
+        )
         fills      = result.get("fills", [])
         avg_price  = sum(float(f["price"]) * float(f["qty"]) for f in fills)
         total_qty  = sum(float(f["qty"]) for f in fills)
@@ -140,5 +145,8 @@ async def order(request: Request):
             await client_http.post(DISCORD_WEBHOOK_CRIPTO, json={"content": f"{emoji} **ORDEM EXECUTADA** `{symbol}` | `{side}` | Qtd: `{qty}` | Preço: `{exec_price}`"})
 
         return {"status": "executado", "orderId": result["orderId"], "exec_price": exec_price}
+
     except BinanceAPIException as e:
         return {"error": e.message, "code": e.code}
+    except Exception as e:
+        return {"error": str(e)}
