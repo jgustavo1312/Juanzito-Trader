@@ -113,7 +113,7 @@ async def health():
 async def myip():
     async with httpx.AsyncClient() as client:
         resp = await client.get("https://api.ipify.org")
-            return {"outbound_ip": resp.text}
+        return {"outbound_ip": resp.text}
         
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
