@@ -1,3 +1,7 @@
 fastapi
 uvicorn
 httpx
+fastapi
+uvicorn
+httpx
+python-binance
