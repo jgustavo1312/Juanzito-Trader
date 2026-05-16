@@ -107,4 +107,10 @@ async def registrar_trade(request: Request):
 
 @app.get("/")
 async def health():
-    return {"status": "online", "servico": "TradingView Alert Bot — Discord Edition"}
+    return {"status": "online", "servico": "TradingView Alert Bot – Discord Edition"}
+
+@app.get("/myip")
+async def myip():
+    async with httpx.AsyncClient() as client:
+        resp = await client.get("https://api.ipify.org")
+        return {"outbound_ip": resp.text}
