@@ -1,0 +1,12 @@
+{
+  "name": "juanzito-scanner-bot",
+  "version": "1.0.0",
+  "description": "Juanzito Trader — Discord Alert Bot · LONG ONLY",
+  "main": "scanner.js",
+  "scripts": {
+    "start": "node scanner.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
