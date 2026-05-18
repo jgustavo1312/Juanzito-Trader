@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import os
+import asyncio
 from datetime import datetime
 
 app = FastAPI()
@@ -111,7 +112,7 @@ async def get_bars(symbol: str):
     if is_crypto:
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                tk, kl1d, kl4h, kl1h = await asyncio_gather(
+                tk, kl1d, kl4h, kl1h = await asyncio.gather(
                     client.get(f"https://api.binance.com/api/v3/ticker/24hr?symbol={sym}"),
                     client.get(f"https://api.binance.com/api/v3/klines?symbol={sym}&interval=1d&limit=300"),
                     client.get(f"https://api.binance.com/api/v3/klines?symbol={sym}&interval=4h&limit=200"),
@@ -138,7 +139,7 @@ async def get_bars(symbol: str):
         }
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                snap, b1d, b4h, b1h = await asyncio_gather(
+                snap, b1d, b4h, b1h = await asyncio.gather(
                     client.get(f"https://data.alpaca.markets/v2/stocks/{sym}/snapshot", headers=headers),
                     client.get(f"https://data.alpaca.markets/v2/stocks/{sym}/bars?timeframe=1Day&limit=300&adjustment=raw&feed=iex", headers=headers),
                     client.get(f"https://data.alpaca.markets/v2/stocks/{sym}/bars?timeframe=4Hour&limit=200&adjustment=raw&feed=iex", headers=headers),
@@ -317,7 +318,3 @@ async def order_alpaca(request: Request):
 
     except Exception as e:
         return {"erro": str(e)}
-
-
-# ── import necessário para /bars
-from asyncio import gather as asyncio_gather
