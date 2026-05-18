@@ -13,9 +13,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Discord webhooks ──────────────────────────────────────────
 DISCORD_ACOES  = os.environ.get("DISCORD_WEBHOOK_ACOES")
 DISCORD_CRIPTO = os.environ.get("DISCORD_WEBHOOK_CRIPTO")
 DISCORD_DIARIO = os.environ.get("DISCORD_WEBHOOK_DIARIO")
+
+# ── Alpaca ────────────────────────────────────────────────────
+ALPACA_API_KEY    = os.environ.get("ALPACA_API_KEY")
+ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY")
+ALPACA_BASE_URL   = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+
+# ── Binance ───────────────────────────────────────────────────
+BINANCE_API_KEY    = os.environ.get("BINANCE_API_KEY")
+BINANCE_SECRET_KEY = os.environ.get("BINANCE_SECRET_KEY")
 
 SUFIXOS_CRIPTO = ["BTC","ETH","USDT","BNB","SOL","XRP","DOGE","ADA","MATIC"]
 
@@ -43,6 +53,18 @@ def montar_embed(ticker, acao, preco, rsi, volume, mensagem):
             "footer": {"text": f"🕐 {hora}  |  TradingView Alert Bot"}
         }]
     }
+
+# ── Endpoints existentes ──────────────────────────────────────
+
+@app.get("/")
+async def health():
+    return {"status": "online", "servico": "Juanzito Trader — Multi-Broker"}
+
+@app.get("/myip")
+async def myip():
+    async with httpx.AsyncClient() as client:
+        resp = await client.get("https://api.ipify.org")
+        return {"outbound_ip": resp.text}
 
 @app.post("/webhook")
 async def receber_alerta(request: Request):
@@ -105,21 +127,6 @@ async def registrar_trade(request: Request):
         resp = await client.post(DISCORD_DIARIO, json=embed)
     return {"status": "registrado", "ticker": ticker, "rr": rr}
 
-@app.get("/")
-async def health():
-    return {"status": "online", "servico": "TradingView Alert Bot – Discord Edition"}
-
-@app.get("/myip")
-async def myip():
-    async with httpx.AsyncClient() as client:
-        resp = await client.get("https://api.ipify.org")
-        return {"outbound_ip": resp.text}
-        
-from binance.client import Client
-from binance.exceptions import BinanceAPIException
-BINANCE_API_KEY    = os.environ.get("BINANCE_API_KEY")
-BINANCE_SECRET_KEY = os.environ.get("BINANCE_SECRET_KEY")
-
 @app.post("/order")
 async def order(request: Request):
     data   = await request.json()
@@ -128,6 +135,8 @@ async def order(request: Request):
     qty    = data.get("qty", "")
 
     try:
+        from binance.client import Client
+        from binance.exceptions import BinanceAPIException
         client = Client(BINANCE_API_KEY, BINANCE_SECRET_KEY)
         result = client.create_order(
             symbol   = symbol,
@@ -142,11 +151,109 @@ async def order(request: Request):
 
         emoji = "🟢" if side == "BUY" else "🔴"
         async with httpx.AsyncClient() as client_http:
-            await client_http.post(DISCORD_WEBHOOK_CRIPTO, json={"content": f"{emoji} **ORDEM EXECUTADA** `{symbol}` | `{side}` | Qtd: `{qty}` | Preço: `{exec_price}`"})
+            await client_http.post(DISCORD_CRIPTO, json={
+                "content": f"{emoji} **ORDEM EXECUTADA** `{symbol}` | `{side}` | Qtd: `{qty}` | Preço: `{exec_price}`"
+            })
 
         return {"status": "executado", "orderId": result["orderId"], "exec_price": exec_price}
 
-    except BinanceAPIException as e:
-        return {"error": e.message, "code": e.code}
     except Exception as e:
         return {"error": str(e)}
+
+# ── NOVO: Alpaca — Ações e ETFs americanos ────────────────────
+
+@app.post("/order-alpaca")
+async def order_alpaca(request: Request):
+    """
+    Executa ordem na Alpaca (paper ou live).
+    Payload esperado do TradingView:
+    {
+        "symbol":   "AAPL",
+        "side":     "buy" | "sell",
+        "qty":      "1",          (número de ações)
+        "type":     "market",     (opcional, default market)
+        "stop":     "150.00",     (opcional — para notificação)
+        "tp":       "160.00"      (opcional — para notificação)
+    }
+    """
+    try:
+        data = await request.json()
+    except:
+        return {"erro": "Payload inválido"}
+
+    symbol = data.get("symbol", "").upper()
+    side   = data.get("side", "buy").lower()
+    qty    = str(data.get("qty", "1"))
+    otype  = data.get("type", "market").lower()
+    stop   = data.get("stop", None)
+    tp     = data.get("tp", None)
+
+    if not symbol:
+        return {"erro": "symbol obrigatório"}
+
+    headers = {
+        "APCA-API-KEY-ID":     ALPACA_API_KEY,
+        "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
+        "Content-Type":        "application/json",
+    }
+
+    payload = {
+        "symbol":        symbol,
+        "qty":           qty,
+        "side":          side,
+        "type":          otype,
+        "time_in_force": "day",
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{ALPACA_BASE_URL}/v2/orders",
+                headers=headers,
+                json=payload,
+                timeout=10.0
+            )
+
+        result = resp.json()
+
+        if resp.status_code not in (200, 201):
+            return {"erro": result.get("message", "Erro Alpaca"), "status_code": resp.status_code}
+
+        order_id    = result.get("id", "—")
+        filled_avg  = result.get("filled_avg_price", "—")
+        status      = result.get("status", "—")
+        hora        = datetime.now().strftime("%d/%m/%Y às %H:%M")
+        emoji       = "🟢" if side == "buy" else "🔴"
+        env_label   = "📄 PAPER" if "paper" in ALPACA_BASE_URL else "💵 LIVE"
+
+        embed = {
+            "embeds": [{
+                "title": f"{emoji} ALPACA {side.upper()} — {symbol}",
+                "color": 0x2ECC71 if side == "buy" else 0xE74C3C,
+                "fields": [
+                    {"name": "🏷️ Ambiente",  "value": f"`{env_label}`",        "inline": True},
+                    {"name": "📦 Qtd",       "value": f"`{qty} ações`",        "inline": True},
+                    {"name": "⚡ Status",    "value": f"`{status}`",           "inline": True},
+                    {"name": "💰 Preço exec","value": f"`{filled_avg}`",       "inline": True},
+                    {"name": "🛑 Stop",      "value": f"`{stop or '—'}`",      "inline": True},
+                    {"name": "🎯 TP",        "value": f"`{tp or '—'}`",        "inline": True},
+                    {"name": "🔑 Order ID",  "value": f"`{order_id}`",         "inline": False},
+                ],
+                "footer": {"text": f"🕐 {hora}  |  Alpaca Trading Bot"}
+            }]
+        }
+
+        async with httpx.AsyncClient() as client_http:
+            await client_http.post(DISCORD_ACOES, json=embed)
+
+        return {
+            "status":   "executado",
+            "order_id": order_id,
+            "symbol":   symbol,
+            "side":     side,
+            "qty":      qty,
+            "broker":   "alpaca",
+        }
+
+    except Exception as e:
+        return {"erro": str(e)}
