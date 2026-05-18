@@ -44,16 +44,11 @@ def montar_embed_setup(data: dict) -> dict:
     broker    = data.get("broker", "")
     hora      = datetime.now().strftime("%d/%m/%Y às %H:%M")
 
-    # Critérios
     c = {k: ("✅" if v else "❌") for k, v in {
-        "c1": data.get("c1", False),
-        "c2": data.get("c2", False),
-        "c3": data.get("c3", False),
-        "c4": data.get("c4", False),
-        "c5": data.get("c5", False),
-        "c6": data.get("c6", False),
-        "c7": data.get("c7", False),
-        "c8": data.get("c8", False),
+        "c1": data.get("c1", False), "c2": data.get("c2", False),
+        "c3": data.get("c3", False), "c4": data.get("c4", False),
+        "c5": data.get("c5", False), "c6": data.get("c6", False),
+        "c7": data.get("c7", False), "c8": data.get("c8", False),
     }.items()}
 
     criterios_txt = (
@@ -65,7 +60,6 @@ def montar_embed_setup(data: dict) -> dict:
 
     cor   = 0x2ECC71 if score >= 7 else 0xF39C12 if score >= 4 else 0xE74C3C
     emoji = "🟢" if score >= 7 else "🟡" if score >= 4 else "🔴"
-
     rsi_1d = data.get("rsi_1d", "—")
     rsi_4h = data.get("rsi_4h", "—")
     rsi_1h = data.get("rsi_1h", "—")
@@ -75,11 +69,11 @@ def montar_embed_setup(data: dict) -> dict:
             "title": f"{emoji}  SETUP {score}/8 — {ticker}",
             "color": cor,
             "fields": [
-                {"name": "💰 Preço",    "value": f"`{preco}`",                          "inline": True},
-                {"name": "🏦 Exchange", "value": f"`{exchange}`",                       "inline": True},
-                {"name": "🔑 Broker",   "value": f"`{broker.upper()}`",                "inline": True},
-                {"name": "📊 RSI",      "value": f"`1D:{rsi_1d}  4H:{rsi_4h}  1H:{rsi_1h}`", "inline": False},
-                {"name": "🎯 Critérios","value": f"```\n{criterios_txt}\n```",          "inline": False},
+                {"name": "💰 Preço",    "value": f"`{preco}`",                               "inline": True},
+                {"name": "🏦 Exchange", "value": f"`{exchange}`",                            "inline": True},
+                {"name": "🔑 Broker",   "value": f"`{broker.upper()}`",                     "inline": True},
+                {"name": "📊 RSI",      "value": f"`1D:{rsi_1d}  4H:{rsi_4h}  1H:{rsi_1h}`","inline": False},
+                {"name": "🎯 Critérios","value": f"```\n{criterios_txt}\n```",               "inline": False},
             ],
             "footer": {"text": f"🕐 {hora}  |  Juanzito Trader · {asset.upper()}"}
         }]
@@ -97,21 +91,76 @@ async def myip():
         resp = await client.get("https://api.ipify.org")
         return {"outbound_ip": resp.text}
 
-# ── /data — painel consulta aqui
 @app.get("/data")
 async def get_data():
-    """Retorna o último estado de todos os tickers recebidos do TradingView."""
     return {"tickers": ticker_store, "total": len(ticker_store)}
 
 @app.get("/data/{ticker}")
 async def get_data_ticker(ticker: str):
-    """Retorna o estado de um ticker específico."""
     t = ticker.upper()
     if t not in ticker_store:
         return {"erro": f"Ticker {t} não encontrado"}
     return ticker_store[t]
 
-# ── /webhook — recebe payload v1.2 do TradingView Pine Script
+# ── /bars — fallback de candles para o painel (Binance=cripto, Alpaca=ações)
+@app.get("/bars/{symbol}")
+async def get_bars(symbol: str):
+    sym = symbol.upper()
+    is_crypto = sym.endswith("USDT") or sym.endswith("BTC") or sym.endswith("ETH")
+
+    if is_crypto:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                tk, kl1d, kl4h, kl1h = await asyncio_gather(
+                    client.get(f"https://api.binance.com/api/v3/ticker/24hr?symbol={sym}"),
+                    client.get(f"https://api.binance.com/api/v3/klines?symbol={sym}&interval=1d&limit=300"),
+                    client.get(f"https://api.binance.com/api/v3/klines?symbol={sym}&interval=4h&limit=200"),
+                    client.get(f"https://api.binance.com/api/v3/klines?symbol={sym}&interval=1h&limit=200"),
+                )
+                t = tk.json()
+                if t.get("code"):
+                    return {"erro": f"{sym} não encontrado na Binance"}
+                return {
+                    "source":    "binance",
+                    "price":     t["lastPrice"],
+                    "chg24":     t["priceChangePercent"],
+                    "vol24_usd": t["quoteVolume"],
+                    "klines_1d": kl1d.json(),
+                    "klines_4h": kl4h.json(),
+                    "klines_1h": kl1h.json(),
+                }
+        except Exception as e:
+            return {"erro": str(e)}
+    else:
+        headers = {
+            "APCA-API-KEY-ID":     ALPACA_API_KEY,
+            "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                snap, b1d, b4h, b1h = await asyncio_gather(
+                    client.get(f"https://data.alpaca.markets/v2/stocks/{sym}/snapshot", headers=headers),
+                    client.get(f"https://data.alpaca.markets/v2/stocks/{sym}/bars?timeframe=1Day&limit=300&adjustment=raw&feed=iex", headers=headers),
+                    client.get(f"https://data.alpaca.markets/v2/stocks/{sym}/bars?timeframe=4Hour&limit=200&adjustment=raw&feed=iex", headers=headers),
+                    client.get(f"https://data.alpaca.markets/v2/stocks/{sym}/bars?timeframe=1Hour&limit=200&adjustment=raw&feed=iex", headers=headers),
+                )
+                s      = snap.json()
+                price  = s.get("latestTrade", {}).get("p", 0)
+                prev   = s.get("prevDailyBar", {}).get("c", price)
+                chg24  = round((price - prev) / prev * 100, 4) if prev else 0
+                vol_usd= s.get("dailyBar", {}).get("v", 0) * price
+                return {
+                    "source":    "alpaca",
+                    "price":     str(price),
+                    "chg24":     str(chg24),
+                    "vol24_usd": str(vol_usd),
+                    "bars_1d":   b1d.json().get("bars", []),
+                    "bars_4h":   b4h.json().get("bars", []),
+                    "bars_1h":   b1h.json().get("bars", []),
+                }
+        except Exception as e:
+            return {"erro": str(e)}
+
 @app.post("/webhook")
 async def receber_alerta(request: Request):
     try:
@@ -125,34 +174,19 @@ async def receber_alerta(request: Request):
     score      = data.get("score", 0)
     status     = data.get("status", "SEM_SETUP")
 
-    # 1. Sempre atualiza o store (painel sempre tem dados frescos)
     data["ticker"]    = ticker
     data["updatedAt"] = datetime.now().isoformat()
     ticker_store[ticker] = data
 
-    # 2. Só notifica Discord quando é novo setup (score >= 7 pela primeira vez)
     if novo_setup:
         canal_url = canal_por_broker(broker)
         embed     = montar_embed_setup(data)
         async with httpx.AsyncClient() as client:
             await client.post(canal_url, json=embed)
-        return {
-            "status":     "setup_notificado",
-            "ticker":     ticker,
-            "score":      score,
-            "broker":     broker,
-            "discord":    "enviado"
-        }
+        return {"status": "setup_notificado", "ticker": ticker, "score": score, "broker": broker, "discord": "enviado"}
 
-    # 3. Atualização normal — só store, sem Discord
-    return {
-        "status":  "store_atualizado",
-        "ticker":  ticker,
-        "score":   score,
-        "status_sinal": status
-    }
+    return {"status": "store_atualizado", "ticker": ticker, "score": score, "status_sinal": status}
 
-# ── /trade — registro manual no diário
 @app.post("/trade")
 async def registrar_trade(request: Request):
     try:
@@ -193,10 +227,9 @@ async def registrar_trade(request: Request):
     }
 
     async with httpx.AsyncClient() as client:
-        resp = await client.post(DISCORD_DIARIO, json=embed)
+        await client.post(DISCORD_DIARIO, json=embed)
     return {"status": "registrado", "ticker": ticker, "rr": rr}
 
-# ── /order — Binance Spot
 @app.post("/order")
 async def order(request: Request):
     data   = await request.json()
@@ -207,25 +240,20 @@ async def order(request: Request):
     try:
         from binance.client import Client
         client = Client(BINANCE_API_KEY, BINANCE_SECRET_KEY)
-        result = client.create_order(
-            symbol=symbol, side=side, type="MARKET", quantity=qty
-        )
+        result = client.create_order(symbol=symbol, side=side, type="MARKET", quantity=qty)
         fills      = result.get("fills", [])
         avg_price  = sum(float(f["price"]) * float(f["qty"]) for f in fills)
         total_qty  = sum(float(f["qty"]) for f in fills)
         exec_price = round(avg_price / total_qty, 4) if total_qty > 0 else 0
-
         emoji = "🟢" if side == "BUY" else "🔴"
         async with httpx.AsyncClient() as client_http:
             await client_http.post(DISCORD_CRIPTO, json={
                 "content": f"{emoji} **ORDEM EXECUTADA** `{symbol}` | `{side}` | Qtd: `{qty}` | Preço: `{exec_price}`"
             })
         return {"status": "executado", "orderId": result["orderId"], "exec_price": exec_price}
-
     except Exception as e:
         return {"error": str(e)}
 
-# ── /order-alpaca — Alpaca (ações, ETFs, opções)
 @app.post("/order-alpaca")
 async def order_alpaca(request: Request):
     try:
@@ -252,9 +280,7 @@ async def order_alpaca(request: Request):
 
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{ALPACA_BASE_URL}/v2/orders", headers=headers, json=payload, timeout=10.0
-            )
+            resp = await client.post(f"{ALPACA_BASE_URL}/v2/orders", headers=headers, json=payload, timeout=10.0)
 
         result = resp.json()
         if resp.status_code not in (200, 201):
@@ -291,3 +317,7 @@ async def order_alpaca(request: Request):
 
     except Exception as e:
         return {"erro": str(e)}
+
+
+# ── import necessário para /bars
+from asyncio import gather as asyncio_gather
