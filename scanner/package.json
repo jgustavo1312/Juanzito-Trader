@@ -1,12 +1,18 @@
 {
-  "name": "juanzito-scanner-bot",
+  "name": "juanzito-scanner",
   "version": "1.0.0",
-  "description": "Juanzito Trader — Discord Alert Bot · LONG ONLY",
-  "main": "scanner.js",
+  "description": "Juanzito Trader — Scanner automático via TradingView Screener",
+  "type": "module",
+  "main": "index.js",
   "scripts": {
-    "start": "node scanner.js"
+    "start": "node index.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-cron": "^3.0.3",
+    "node-fetch": "^3.3.2"
   }
 }
