@@ -198,7 +198,7 @@ async function runScan() {
         d.ticker.startsWith('BINANCE:') &&
         d.sym.endsWith('USDT') &&
         !BLACKLIST.has(d.sym) &&
-        (num(d['close']) ?? 0) >= MIN_PRICE
+        parseFloat(d['close']) >= MIN_PRICE
       );
     totalVarred = rows.length;
 
