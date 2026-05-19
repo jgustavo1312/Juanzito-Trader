@@ -198,7 +198,7 @@ async function runScan() {
     scanResults = scored;
     lastScan    = new Date().toISOString();
 
-    const setups = scored.filter(d => d.score >= SCORE_MIN);
+    const setups = scored.filter(d => d.score >= SCORE_MIN && (d.close || 0) >= MIN_PRICE);
 
     console.log(
       `[Scanner] ${totalVarred} varridos · ` +
