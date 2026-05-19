@@ -173,7 +173,14 @@ async function sendDiscord(setups) {
   }
 }
 
-// ── Scan principal
+// Stablecoins e tokens sem sentido para trading direcional
+const BLACKLIST = new Set([
+  'USDCUSDT','USDTUSDT','BUSDUSDT','TUSDUSDT','USDPUSDT',
+  'DAIUSDT','FRAXUSDT','USDDUSDT','USTUSDT','EURUSDT',
+  'FDUSDUSDT','PYUSDUSDT',
+]);
+
+const MIN_PRICE = parseFloat(process.env.MIN_PRICE || '0.01'); // mín $0.01
 async function runScan() {
   if (scanRunning) {
     console.log('[Scanner] Já rodando, pulando.');
@@ -187,7 +194,12 @@ async function runScan() {
     const data = await fetchScreener();
     const rows = data.data
       .map(parseRow)
-      .filter(d => d.ticker.startsWith('BINANCE:') && d.sym.endsWith('USDT'));
+      .filter(d =>
+        d.ticker.startsWith('BINANCE:') &&
+        d.sym.endsWith('USDT') &&
+        !BLACKLIST.has(d.sym) &&
+        (num(d['close']) ?? 0) >= MIN_PRICE
+      );
     totalVarred = rows.length;
 
     const scored = rows
