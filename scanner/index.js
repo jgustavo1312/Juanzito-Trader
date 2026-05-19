@@ -29,22 +29,12 @@ const TV_URL = 'https://scanner.tradingview.com/crypto/scan';
 
 const COLUMNS = [
   'name',
-  'close',           // preço atual 1D
-  'change',          // variação 24h %
-  'volume',          // volume 1D
-  'EMA50',           // EMA50 1D
-  'EMA100',          // EMA100 1D
-  'EMA200',          // EMA200 1D
-  'RSI',             // RSI 14 1D
-  'close|240',       // preço 4H
-  'EMA50|240',       // EMA50 4H
-  'RSI|240',         // RSI 14 4H
-  'MACD.macd|240',   // MACD line 4H
-  'MACD.signal|240', // MACD signal 4H
-  'volume|240',      // volume 4H
-  'close|60',        // preço 1H
-  'EMA50|60',        // EMA50 1H
-  'RSI|60',          // RSI 14 1H
+  'close',
+  'change',
+  'EMA50', 'EMA100', 'EMA200', 'RSI',
+  'close|240', 'EMA50|240', 'RSI|240',
+  'MACD.macd|240', 'MACD.signal|240', 'volume|240',
+  'close|60', 'EMA50|60', 'RSI|60',
 ];
 
 // ── Fetch do Screener
@@ -126,9 +116,8 @@ function calculateScore(d) {
   const macdHist = (macd_4h !== null && sig_4h !== null) ? macd_4h - sig_4h : null;
   const c5 = macdHist !== null && macdHist >= 0;
 
-  // c6: vol 4H > vol 1D / 6 (proxy de volume acima da média 4H)
-  const c6 = vol_4h !== null && vol_1d !== null
-              && vol_4h > (vol_1d / 6);
+  // c6: volume 4H existe e é positivo (dado que vol_1d não está disponível)
+  const c6 = vol_4h !== null && vol_4h > 0;
 
   const c7 = close1h !== null && ema50_1h !== null
               && close1h > ema50_1h;
@@ -197,8 +186,7 @@ async function runScan() {
       .filter(d =>
         d.ticker.startsWith('BINANCE:') &&
         d.sym.endsWith('USDT') &&
-        !BLACKLIST.has(d.sym) &&
-        parseFloat(d['close']) >= MIN_PRICE
+        !BLACKLIST.has(d.sym)
       );
     totalVarred = rows.length;
 
