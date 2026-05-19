@@ -52,10 +52,9 @@ const COLUMNS = [
 async function fetchScreener() {
   const body = {
     filter: [
-      { left: 'exchange',        operation: 'equal', right: 'BINANCE' },
-      { left: 'currency',        operation: 'equal', right: 'USDT' },
-      { left: 'market_cap_calc', operation: 'nempty' },
+      { left: 'exchange', operation: 'in_range', right: ['BINANCE'] },
     ],
+    markets: ['crypto'],
     options: { lang: 'en' },
     symbols: { query: { types: [] }, tickers: [] },
     columns: COLUMNS,
@@ -188,7 +187,9 @@ async function runScan() {
 
   try {
     const data = await fetchScreener();
-    const rows = data.data.map(parseRow);
+    const rows = data.data
+      .map(parseRow)
+      .filter(d => d.sym.endsWith('USDT')); // só pares USDT
     totalVarred = rows.length;
 
     const scored = rows
