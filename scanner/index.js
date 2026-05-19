@@ -31,6 +31,7 @@ const COLUMNS = [
   'name',
   'close',           // preço atual 1D
   'change',          // variação 24h %
+  'volume',          // volume 1D
   'EMA50',           // EMA50 1D
   'EMA100',          // EMA100 1D
   'EMA200',          // EMA200 1D
@@ -41,21 +42,21 @@ const COLUMNS = [
   'MACD.macd|240',   // MACD line 4H
   'MACD.signal|240', // MACD signal 4H
   'volume|240',      // volume 4H
-  'average_volume_10d_calc', // volume médio diário (10d)
   'close|60',        // preço 1H
   'EMA50|60',        // EMA50 1H
   'RSI|60',          // RSI 14 1H
-  'market_cap_calc', // market cap (para ordenar)
 ];
 
 // ── Fetch do Screener
 async function fetchScreener() {
   const body = {
-    markets: ['crypto'],
+    filter: [
+      { left: 'exchange', operation: 'in_range', right: ['BINANCE'] },
+    ],
     options: { lang: 'en' },
     symbols: { query: { types: [] }, tickers: [] },
     columns: COLUMNS,
-    sort: { sortBy: 'market_cap_calc', sortOrder: 'desc' },
+    sort: { sortBy: 'volume', sortOrder: 'desc' },
     range: [0, 150],
   };
 
@@ -93,6 +94,7 @@ function num(v) {
 // ── Calcula os 8 critérios e score
 function calculateScore(d) {
   const close1d   = num(d['close']);
+  const vol_1d    = num(d['volume']);
   const ema50_1d  = num(d['EMA50']);
   const ema100_1d = num(d['EMA100']);
   const ema200_1d = num(d['EMA200']);
@@ -104,7 +106,6 @@ function calculateScore(d) {
   const macd_4h   = num(d['MACD.macd|240']);
   const sig_4h    = num(d['MACD.signal|240']);
   const vol_4h    = num(d['volume|240']);
-  const vol_avg   = num(d['average_volume_10d_calc']);
 
   const close1h  = num(d['close|60']);
   const ema50_1h = num(d['EMA50|60']);
@@ -125,9 +126,9 @@ function calculateScore(d) {
   const macdHist = (macd_4h !== null && sig_4h !== null) ? macd_4h - sig_4h : null;
   const c5 = macdHist !== null && macdHist >= 0;
 
-  // c6: volume 4H > média diária / 6 (≈ média de um período 4H)
-  const c6 = vol_4h !== null && vol_avg !== null
-              && vol_4h > (vol_avg / 6);
+  // c6: vol 4H > vol 1D / 6 (proxy de volume acima da média 4H)
+  const c6 = vol_4h !== null && vol_1d !== null
+              && vol_4h > (vol_1d / 6);
 
   const c7 = close1h !== null && ema50_1h !== null
               && close1h > ema50_1h;
