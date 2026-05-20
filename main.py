@@ -4,6 +4,7 @@ import httpx
 import os
 import asyncio
 from datetime import datetime
+import yfinance as yf
 
 app = FastAPI()
 
@@ -103,11 +104,85 @@ async def get_data_ticker(ticker: str):
         return {"erro": f"Ticker {t} não encontrado"}
     return ticker_store[t]
 
+def is_br_ticker(sym: str) -> bool:
+    if sym.endswith("11"):
+        return True
+    if len(sym) <= 6 and sym[-1] in ("3","4","5","6","8"):
+        return True
+    return False
+
+async def fetch_br_bars(sym: str) -> dict:
+    ticker_yf = sym + ".SA"
+    try:
+        df_1d = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: yf.download(ticker_yf, period="2y",
+                                 interval="1d", auto_adjust=True,
+                                 progress=False)
+        )
+        df_1h = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: yf.download(ticker_yf, period="60d",
+                                 interval="1h", auto_adjust=True,
+                                 progress=False)
+        )
+
+        if df_1d.empty:
+            return {"erro": f"{sym} não encontrado na B3"}
+
+        price     = float(df_1d["Close"].iloc[-1])
+        prev      = float(df_1d["Close"].iloc[-2]) if len(df_1d) > 1 else price
+        chg24     = round((price - prev) / prev * 100, 4) if prev else 0
+        vol_brl   = float(df_1d["Volume"].iloc[-1]) * price
+
+        def df_to_bars(df):
+            bars = []
+            df = df.dropna()
+            for idx, row in df.iterrows():
+                bars.append({
+                    "t": idx.isoformat(),
+                    "o": float(row["Open"]),
+                    "h": float(row["High"]),
+                    "l": float(row["Low"]),
+                    "c": float(row["Close"]),
+                    "v": float(row["Volume"]),
+                })
+            return bars
+
+        bars_1d = df_to_bars(df_1d)
+        bars_1h = df_to_bars(df_1h)
+
+        bars_4h = []
+        if not df_1h.empty:
+            df_4h = df_1h.resample("4h").agg({
+                "Open":  "first",
+                "High":  "max",
+                "Low":   "min",
+                "Close": "last",
+                "Volume":"sum"
+            }).dropna()
+            bars_4h = df_to_bars(df_4h)
+
+        return {
+            "source":    "yfinance_b3",
+            "price":     str(round(price, 2)),
+            "chg24":     str(chg24),
+            "vol24_usd": str(round(vol_brl, 2)),
+            "bars_1d":   bars_1d,
+            "bars_4h":   bars_4h,
+            "bars_1h":   bars_1h,
+        }
+    except Exception as e:
+        return {"erro": f"Erro B3 ({sym}): {str(e)}"}
+
 # ── /bars — fallback de candles para o painel (Binance=cripto, Alpaca=ações)
 @app.get("/bars/{symbol}")
 async def get_bars(symbol: str):
     sym = symbol.upper()
     is_crypto = sym.endswith("USDT") or sym.endswith("BTC") or sym.endswith("ETH")
+
+    if is_br_ticker(sym):
+        return await fetch_br_bars(sym)
 
     if is_crypto:
         try:
