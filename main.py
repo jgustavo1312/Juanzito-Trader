@@ -236,6 +236,41 @@ async def get_bars(symbol: str):
 
 @app.post("/webhook")
 async def receber_alerta(request: Request):
+    content_type = request.headers.get("content-type", "")
+
+    # ── Texto simples: "Setup detectado em TICKER" / "Setup IDEAL em TICKER"
+    if "application/json" not in content_type:
+        body = (await request.body()).decode("utf-8").strip()
+        import re
+        m = re.search(r"Setup\s+(IDEAL|detectado)\s+em\s+(\w+)", body, re.IGNORECASE)
+        if not m:
+            return {"erro": "Formato de texto não reconhecido"}
+
+        tipo   = m.group(1).upper()
+        ticker = m.group(2).upper()
+        hora   = datetime.now().strftime("%d/%m/%Y às %H:%M")
+
+        if ticker in ticker_store:
+            data      = ticker_store[ticker]
+            broker    = data.get("broker", "")
+            canal_url = canal_por_broker(broker)
+            embed     = montar_embed_setup(data)
+        else:
+            canal_url = DISCORD_ACOES or DISCORD_CRIPTO
+            embed = {
+                "embeds": [{
+                    "title": f"📡  SETUP {tipo} — {ticker}",
+                    "color": 0x3498DB,
+                    "description": f"Alerta recebido via texto.\nTicker `{ticker}` ainda não está no store.",
+                    "footer": {"text": f"🕐 {hora}  |  Juanzito Trader"}
+                }]
+            }
+
+        async with httpx.AsyncClient() as client:
+            await client.post(canal_url, json=embed)
+        return {"status": "texto_notificado", "ticker": ticker, "tipo": tipo, "discord": "enviado"}
+
+    # ── JSON padrão
     try:
         data = await request.json()
     except:
