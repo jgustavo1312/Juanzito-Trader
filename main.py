@@ -114,17 +114,14 @@ def is_br_ticker(sym: str) -> bool:
 async def fetch_br_bars(sym: str) -> dict:
     ticker_yf = sym + ".SA"
     try:
+        t = yf.Ticker(ticker_yf)
         df_1d = await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: yf.download(ticker_yf, period="2y",
-                                 interval="1d", auto_adjust=True,
-                                 progress=False)
+            lambda: t.history(period="2y", interval="1d", auto_adjust=True)
         )
         df_1h = await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: yf.download(ticker_yf, period="60d",
-                                 interval="1h", auto_adjust=True,
-                                 progress=False)
+            lambda: t.history(period="60d", interval="1h", auto_adjust=True)
         )
 
         if df_1d.empty:
