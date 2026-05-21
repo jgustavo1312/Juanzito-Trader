@@ -342,34 +342,74 @@ async def fetch_focus_bcb() -> list:
     ano = str(datetime.now().year)
     base = "https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata"
 
-    async def _call(path, params, label):
+    async def _call_olinda(path, params, label):
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 r = await client.get(f"{base}/{path}", params=params)
                 items = r.json().get("value", [])
                 if items and items[0].get("Mediana") is not None:
                     return {"label": label, "value": f"{items[0]['Mediana']}%"}
-        except Exception:
-            pass
-        return {"label": label, "value": None}
+        except Exception as e:
+            print(f"[FOCUS_BCB] ERRO: {type(e).__name__}: {e}")
+        return None
+
+    async def _fetch_brasilapi_ipca():
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.get("https://brasilapi.com.br/api/ipca/v1")
+                items = r.json()
+                if items:
+                    valor = items[-1].get("valor")
+                    if valor is not None:
+                        anualizado = ((1 + valor / 100) ** 12 - 1) * 100
+                        return {"label": "IPCA 12m esperado", "value": f"{anualizado:.2f}%"}
+        except Exception as e:
+            print(f"[FOCUS_BCB][BRASILAPI_IPCA] ERRO: {type(e).__name__}: {e}")
+        return None
+
+    async def _fetch_brasilapi_selic():
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.get("https://brasilapi.com.br/api/taxa/v1")
+                items = r.json()
+                for item in items:
+                    if item.get("tipo", "").lower() == "selic":
+                        return {"label": "Selic esperada", "value": f"{item['valor']}%"}
+        except Exception as e:
+            print(f"[FOCUS_BCB][BRASILAPI_SELIC] ERRO: {type(e).__name__}: {e}")
+        return None
+
+    async def _fetch_sgs_ipca():
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.get(
+                    "https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1",
+                    params={"formato": "json"},
+                )
+                items = r.json()
+                if items:
+                    return {"label": "IPCA 12m esperado", "value": f"{items[0]['valor']}%"}
+        except Exception as e:
+            print(f"[FOCUS_BCB][SGS] ERRO: {type(e).__name__}: {e}")
+        return None
 
     try:
         ipca, selic, pib = await asyncio.gather(
-            _call(
+            _call_olinda(
                 "ExpectativasMercadoSuavizadas12Meses",
                 {"$filter": "Indicador eq 'IPCA' and Suavizado eq 'S'",
                  "$orderby": "Data desc", "$top": "1", "$format": "json",
                  "$select": "Indicador,Data,Mediana"},
                 "IPCA 12m esperado",
             ),
-            _call(
+            _call_olinda(
                 "ExpectativasMercadoAnuais",
                 {"$filter": f"Indicador eq 'Selic' and Ano eq '{ano}' and baseCalculo eq '0'",
                  "$orderby": "Data desc", "$top": "1", "$format": "json",
                  "$select": "Indicador,Ano,Data,Mediana"},
                 "Selic esperada",
             ),
-            _call(
+            _call_olinda(
                 "ExpectativasMercadoAnuais",
                 {"$filter": f"Indicador eq 'PIB Total' and Ano eq '{ano}'",
                  "$orderby": "Data desc", "$top": "1", "$format": "json",
@@ -377,11 +417,22 @@ async def fetch_focus_bcb() -> list:
                 "PIB esperado",
             ),
         )
-        return [ipca, selic, pib]
-    except Exception:
-        return [{"label": "IPCA 12m esperado", "value": None},
-                {"label": "Selic esperada", "value": None},
-                {"label": "PIB esperado", "value": None}]
+    except Exception as e:
+        print(f"[FOCUS_BCB] gather ERRO: {type(e).__name__}: {e}")
+        ipca, selic, pib = None, None, None
+
+    if ipca is None:
+        ipca = await _fetch_brasilapi_ipca()
+    if selic is None:
+        selic = await _fetch_brasilapi_selic()
+    if ipca is None:
+        ipca = await _fetch_sgs_ipca()
+
+    return [
+        ipca or {"label": "IPCA 12m esperado", "value": None},
+        selic or {"label": "Selic esperada", "value": None},
+        pib or {"label": "PIB esperado", "value": None},
+    ]
 
 
 async def fetch_anbima_ntnb():
