@@ -705,6 +705,14 @@ input.locked-field{
 .macro-class-lbl{font-size:7px;letter-spacing:2px;color:var(--text-dim);text-transform:uppercase;margin-bottom:5px;}
 .macro-class-badge{display:inline-flex;align-items:center;font-size:9px;font-weight:700;letter-spacing:1px;padding:3px 8px;margin-bottom:4px;}
 .macro-class-motivo{font-size:9px;color:var(--text-mid);line-height:1.4;}
+.macro-br-block{padding-top:10px;border-top:1px solid var(--border);margin-top:4px;margin-bottom:4px;}
+.macro-br-row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;}
+.macro-br-field{display:flex;flex-direction:column;gap:3px;flex:1;min-width:95px;}
+.macro-br-lbl{font-size:7px;letter-spacing:2px;color:var(--text-dim);text-transform:uppercase;}
+.macro-br-inp{background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:'Courier New',monospace;font-size:11px;padding:5px 8px;width:100%;box-sizing:border-box;}
+.macro-br-inp:focus{border-color:var(--amber-lo);outline:none;}
+.macro-br-toggle{font-size:7px;letter-spacing:1px;color:var(--amber-lo);background:none;border:1px solid var(--amber-lo);padding:2px 6px;cursor:pointer;text-transform:uppercase;}
+.macro-br-toggle:hover{background:rgba(240,160,32,.1);}
 </style>
 </head>
 <body>
@@ -767,7 +775,10 @@ input.locked-field{
        ========================================== -->
   <div class="macro-block">
     <div class="macro-block-head">
-      <span class="macro-block-ttl">Contexto Macro</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="macro-block-ttl">Contexto Macro</span>
+        <button class="macro-br-toggle" id="br-toggle-btn" onclick="toggleBrContext()">▼ BR</button>
+      </div>
       <div style="display:flex;align-items:center;gap:10px;">
         <span id="macro-ts" style="font-size:8px;color:var(--text-dim);"></span>
         <button class="btn btn-sm" onclick="analyzeMacro()"><span id="macro-ico">⚡</span> ANALISAR MACRO</button>
@@ -775,6 +786,29 @@ input.locked-field{
     </div>
     <div class="macro-inds" id="macro-inds">
       <span style="font-size:9px;color:var(--text-dim);padding:4px 0;">Clique em ANALISAR MACRO para buscar os indicadores.</span>
+    </div>
+    <div id="macro-br-ctx" class="macro-br-block" style="display:none;">
+      <div class="macro-br-row">
+        <div class="macro-br-field">
+          <label class="macro-br-lbl">IPCA 12m esperado</label>
+          <input class="macro-br-inp" id="br-ipca" type="text" placeholder="ex: 5.6%" autocomplete="off">
+        </div>
+        <div class="macro-br-field">
+          <label class="macro-br-lbl">Selic esperada</label>
+          <input class="macro-br-inp" id="br-selic" type="text" placeholder="ex: 14.75%" autocomplete="off">
+        </div>
+        <div class="macro-br-field">
+          <label class="macro-br-lbl">DI Jan/2028</label>
+          <input class="macro-br-inp" id="br-di" type="text" placeholder="ex: 13.89%" autocomplete="off">
+        </div>
+        <div class="macro-br-field">
+          <label class="macro-br-lbl">PIB esperado</label>
+          <input class="macro-br-inp" id="br-pib" type="text" placeholder="ex: 2.1%" autocomplete="off">
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn btn-sm btn-primary" onclick="saveBrContext()" style="white-space:nowrap;">SALVAR</button>
+        </div>
+      </div>
     </div>
     <div id="macro-result-block" style="display:none;">
       <div id="macro-verdict-wrap"></div>
@@ -2986,6 +3020,44 @@ async function analyzeMacro() {
   }
 }
 
+function toggleBrContext() {
+  const block = document.getElementById('macro-br-ctx');
+  const btn   = document.getElementById('br-toggle-btn');
+  const open  = block.style.display === 'none' || block.style.display === '';
+  block.style.display = open ? 'block' : 'none';
+  btn.textContent = open ? '▲ BR' : '▼ BR';
+}
+
+function saveBrContext() {
+  const data = {
+    ipca:  document.getElementById('br-ipca').value.trim(),
+    selic: document.getElementById('br-selic').value.trim(),
+    di:    document.getElementById('br-di').value.trim(),
+    pib:   document.getElementById('br-pib').value.trim(),
+  };
+  localStorage.setItem('jt_br_context', JSON.stringify(data));
+  const btn = document.querySelector('[onclick="saveBrContext()"]');
+  const orig = btn.textContent;
+  btn.textContent = '✓ SALVO';
+  setTimeout(() => { btn.textContent = orig; }, 1200);
+}
+
+function loadBrContext() {
+  try {
+    const raw = localStorage.getItem('jt_br_context');
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.ipca)  document.getElementById('br-ipca').value  = data.ipca;
+    if (data.selic) document.getElementById('br-selic').value = data.selic;
+    if (data.di)    document.getElementById('br-di').value    = data.di;
+    if (data.pib)   document.getElementById('br-pib').value   = data.pib;
+    if (Object.values(data).some(v => v)) {
+      document.getElementById('macro-br-ctx').style.display = 'block';
+      document.getElementById('br-toggle-btn').textContent = '▲ BR';
+    }
+  } catch(_) {}
+}
+
 function _buildMacroPrompt(d) {
   const fmt = (v, chg) => {
     const val = v != null ? v : '—';
@@ -3016,6 +3088,22 @@ function _buildMacroPrompt(d) {
     di.forEach(i => lines.push(`${i.label}: ${i.value}`));
     if (impl && impl.value != null) lines.push(`${impl.label}: ${impl.value}`);
   }
+  try {
+    const raw = localStorage.getItem('jt_br_context');
+    if (raw) {
+      const br = JSON.parse(raw);
+      const hasAny = Object.values(br).some(v => v);
+      if (hasAny) {
+        lines.push('');
+        lines.push('DADOS DOMÉSTICOS BRASIL (informados pelo operador):');
+        if (br.ipca)  lines.push(`- IPCA 12m esperado: ${br.ipca}`);
+        if (br.selic) lines.push(`- Selic esperada: ${br.selic}`);
+        if (br.di)    lines.push(`- DI Jan/2028: ${br.di}`);
+        if (br.pib)   lines.push(`- PIB esperado: ${br.pib}`);
+        lines.push('Use esses dados como contexto primário para análise de ACOES_BR e FIIs.');
+      }
+    }
+  } catch(_) {}
   return lines.join('\n');
 }
 
@@ -3151,6 +3239,7 @@ function _renderMacroTs(txt) {
   const key = localStorage.getItem(MACRO_KEY_LS);
   const row = document.getElementById('macro-key-row');
   if (row) row.style.display = key ? 'none' : '';
+  loadBrContext();
 
   try {
     const raw = localStorage.getItem(MACRO_CACHE_LS);
