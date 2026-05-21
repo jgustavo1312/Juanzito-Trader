@@ -700,6 +700,11 @@ input.locked-field{
 .macro-alerta-block{background:rgba(240,160,32,.06);border:1px solid rgba(240,160,32,.25);padding:9px 12px;margin-top:8px;}
 .macro-alerta-lbl{font-size:7px;letter-spacing:2px;color:var(--amber-lo);text-transform:uppercase;margin-bottom:3px;}
 .macro-alerta-val{font-size:10px;color:var(--amber);line-height:1.5;}
+.macro-class-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+.macro-class-card{background:var(--bg3);border:1px solid var(--border);padding:10px 12px;}
+.macro-class-lbl{font-size:7px;letter-spacing:2px;color:var(--text-dim);text-transform:uppercase;margin-bottom:5px;}
+.macro-class-badge{display:inline-flex;align-items:center;font-size:9px;font-weight:700;letter-spacing:1px;padding:3px 8px;margin-bottom:4px;}
+.macro-class-motivo{font-size:9px;color:var(--text-mid);line-height:1.4;}
 </style>
 </head>
 <body>
@@ -2947,7 +2952,7 @@ async function analyzeMacro() {
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 700,
-        system: 'Você é gestor macro sênior de um fundo multimercado global. Analise a CONVERGÊNCIA entre os indicadores fornecidos. Retorne APENAS JSON válido sem markdown, neste formato exato: {"veredito":"RISK-ON","confianca":"ALTA","resumo":"tese macro em 2 linhas","sinais_positivos":["indicador1","indicador2"],"sinais_negativos":["indicador1","indicador2"],"cripto":"impacto específico para cripto","br_acoes":"impacto para ações BR considerando Selic","fiis":"impacto para FIIs considerando curva de juros BR","alerta":"divergência ou risco crítico a monitorar"}. Regras: RISK-ON só com confiança ALTA quando maioria converge. RISK-OFF com qualquer sinal sistêmico forte (VIX>25, DXY>105). NEUTRO quando há conflito relevante. Valores válidos para confianca: ALTA, MEDIA, BAIXA.',
+        system: 'Você é um gestor macro sênior. Analise os indicadores fornecidos e retorne EXCLUSIVAMENTE um JSON válido, sem texto adicional, sem markdown, sem blocos de código.\n\nLÓGICA POR CLASSE:\n- CRIPTO: peso BTC.D, Fear&Greed, DXY, VIX. BTC.D>60% penaliza altcoins. Fear&Greed<30 = cautela mesmo com DXY fraco.\n- ACOES_USA: peso US30Y, US10Y, VIX, DXY, SP500. US30Y>5% = headwind severo para crescimento. VIX<20 necessário para RISK-ON.\n- ACOES_BR: peso DXY, VIX, Oil, Gold, juros BR (se disponível). DXY fraco favorece emergentes mas Oil>90 pressiona inflação BR.\n- FIIS: separar papel vs tijolo. Taxa alta (US10Y>4.5%) = RISK-ON para papel (receita sobe), RISK-OFF para tijolo (custo de capital sobe). Gold alto reforça proteção inflacionária para FIIS de papel.\n\nREGRAS GLOBAIS:\n- VIX>25 OU DXY>105 implica RISK-OFF em todas as classes.\n- Gold>4000 + Oil>90 + Fear&Greed<30 = stagflação, penaliza ações USA e tijolo.\n- MOVE>100 = stress de bonds, cautela geral.\n\nRetorne este JSON exato: {"veredito_global":"RISK-ON","confianca":"ALTA","resumo":"frase única de até 15 palavras explicando o cenário","classes":{"cripto":{"veredito":"RISK-ON","motivo":"até 12 palavras"},"acoes_usa":{"veredito":"RISK-ON","motivo":"até 12 palavras"},"acoes_br":{"veredito":"RISK-ON","motivo":"até 12 palavras"},"fiis":{"veredito":"RISK-ON","motivo":"até 12 palavras"}},"sinais_positivos":["máx 3 itens"],"sinais_negativos":["máx 3 itens"],"alerta":"string ou - se não houver"}',
         messages: [{ role: 'user', content: _buildMacroPrompt(macroData) }],
       }),
     });
@@ -2961,7 +2966,7 @@ async function analyzeMacro() {
       const m = rawText.match(/\{[\s\S]*\}/);
       analysis = JSON.parse(m ? m[0] : rawText);
     } catch(_) {
-      analysis = { veredito: 'NEUTRO', resumo: rawText.slice(0, 120), cripto: '—', br: '—', fiis: '—', alerta: '' };
+      analysis = { veredito_global: 'NEUTRO', confianca: 'BAIXA', resumo: rawText.slice(0, 120), classes: { cripto: { veredito: 'NEUTRO', motivo: '—' }, acoes_usa: { veredito: 'NEUTRO', motivo: '—' }, acoes_br: { veredito: 'NEUTRO', motivo: '—' }, fiis: { veredito: 'NEUTRO', motivo: '—' } }, sinais_positivos: [], sinais_negativos: [], alerta: '' };
     }
 
     localStorage.setItem(MACRO_CACHE_LS, JSON.stringify({ macroData, analysis, ts: new Date().toISOString() }));
@@ -2969,8 +2974,8 @@ async function analyzeMacro() {
     renderMacroResult(analysis);
     _renderMacroTs('Atualizado ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
 
-    if (analysis.veredito === 'RISK-ON')  setRisk('on');
-    if (analysis.veredito === 'RISK-OFF') setRisk('off');
+    if (analysis.veredito_global === 'RISK-ON')  setRisk('on');
+    if (analysis.veredito_global === 'RISK-OFF') setRisk('off');
 
   } catch(e) {
     const inds = document.getElementById('macro-inds');
@@ -3053,19 +3058,42 @@ function renderMacroResult(a) {
     'MEDIA': 'macro-conf-media',
     'BAIXA': 'macro-conf-baixa',
   };
-  const v       = verdMap[a.veredito] || verdMap['NEUTRO'];
-  const confCls = confMap[a.confianca] || 'macro-conf-media';
-  const resumo  = (a.resumo || '').replace(/\n/g, '<br>');
+
+  // Suporta cache antigo (a.veredito) e formato novo (a.veredito_global)
+  const veredito = a.veredito_global || a.veredito || 'NEUTRO';
+  const v        = verdMap[veredito] || verdMap['NEUTRO'];
+  const confCls  = confMap[a.confianca] || 'macro-conf-media';
 
   if (vWrap) vWrap.innerHTML = `
     <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
-      <div class="macro-verdict-badge ${v.cls}">${v.ico} ${a.veredito || 'NEUTRO'}</div>
+      <div class="macro-verdict-badge ${v.cls}">${v.ico} ${veredito}</div>
       ${a.confianca ? `<span class="macro-confianca ${confCls}">CONFIANÇA ${a.confianca}</span>` : ''}
     </div>
-    <div style="font-size:10px;color:var(--text-mid);margin-bottom:12px;line-height:1.7;">${resumo}</div>
+    <div style="font-size:10px;color:var(--text-mid);margin-bottom:12px;line-height:1.7;">${(a.resumo || '').replace(/\n/g, '<br>')}</div>
   `;
 
   let html = '';
+
+  // Grid 2×2 com 4 vereditos por classe
+  if (a.classes) {
+    const classItems = [
+      { key: 'cripto',    lbl: 'CRIPTO'    },
+      { key: 'acoes_usa', lbl: 'AÇÕES USA' },
+      { key: 'acoes_br',  lbl: 'AÇÕES BR'  },
+      { key: 'fiis',      lbl: 'FIIs'      },
+    ];
+    html += `<div class="macro-class-grid">${
+      classItems.map(({ key, lbl }) => {
+        const c  = a.classes[key] || { veredito: 'NEUTRO', motivo: '—' };
+        const vv = verdMap[c.veredito] || verdMap['NEUTRO'];
+        return `<div class="macro-class-card">
+          <div class="macro-class-lbl">${lbl}</div>
+          <div class="macro-class-badge ${vv.cls}">${vv.ico} ${c.veredito}</div>
+          <div class="macro-class-motivo">${c.motivo || '—'}</div>
+        </div>`;
+      }).join('')
+    }</div>`;
+  }
 
   // Sinais positivos / negativos
   const pos = Array.isArray(a.sinais_positivos) ? a.sinais_positivos.filter(Boolean) : [];
@@ -3083,23 +3111,8 @@ function renderMacroResult(a) {
     </div>`;
   }
 
-  // Impacto por classe de ativo
-  const classes = [
-    { lbl: 'Cripto',    val: a.cripto   },
-    { lbl: 'Ações BR',  val: a.br_acoes },
-    { lbl: 'FIIs',      val: a.fiis     },
-  ].filter(f => f.val && f.val.trim() && f.val !== '—');
-  if (classes.length) {
-    html += `<div class="macro-grid">${
-      classes.map(f => `<div class="macro-item">
-        <div class="macro-item-lbl">${f.lbl}</div>
-        <div class="macro-item-val">${f.val}</div>
-      </div>`).join('')
-    }</div>`;
-  }
-
   // Alerta destacado
-  if (a.alerta && a.alerta.trim() && a.alerta !== '—') {
+  if (a.alerta && a.alerta.trim() && a.alerta !== '—' && a.alerta !== '-') {
     html += `<div class="macro-alerta-block">
       <div class="macro-alerta-lbl">⚠ Alerta / Divergência</div>
       <div class="macro-alerta-val">${a.alerta}</div>
