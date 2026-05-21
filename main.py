@@ -340,11 +340,11 @@ async def registrar_trade(request: Request):
 
 @app.get("/macro")
 async def get_macro():
-    async def fetch_yf(sym: str) -> dict:
+    async def fetch_yf(sym: str, period: str = "5d", interval: str = "1d") -> dict:
         try:
             t = yf.Ticker(sym)
             df = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: t.history(period="5d", interval="1d", auto_adjust=True)
+                None, lambda: t.history(period=period, interval=interval, auto_adjust=True)
             )
             if df.empty:
                 return {"value": None, "chg24": None}
@@ -373,10 +373,16 @@ async def get_macro():
         except Exception as e:
             return {"value": None, "error": str(e)}
 
-    dxy, vix, us10y, fear_greed, btc_dom = await asyncio.gather(
+    dxy, vix, us10y, us30y, move, gold, oil, sp500, usm2, fear_greed, btc_dom = await asyncio.gather(
         fetch_yf("DX-Y.NYB"),
         fetch_yf("^VIX"),
         fetch_yf("^TNX"),
+        fetch_yf("^TYX"),
+        fetch_yf("^MOVE"),
+        fetch_yf("GC=F"),
+        fetch_yf("CL=F"),
+        fetch_yf("^GSPC"),
+        fetch_yf("M2SL", "1y", "1mo"),
         fetch_fear_greed(),
         fetch_btc_dom(),
     )
@@ -384,6 +390,12 @@ async def get_macro():
         "dxy":        dxy,
         "vix":        vix,
         "us10y":      us10y,
+        "us30y":      us30y,
+        "move":       move,
+        "gold":       gold,
+        "oil":        oil,
+        "sp500":      sp500,
+        "usm2":       usm2,
         "fear_greed": fear_greed,
         "btc_dom":    btc_dom,
         "timestamp":  datetime.now().isoformat(),

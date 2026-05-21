@@ -686,6 +686,20 @@ input.locked-field{
 .macro-item-lbl{font-size:7px;letter-spacing:2px;color:var(--amber-lo);text-transform:uppercase;margin-bottom:3px;}
 .macro-item-val{font-size:10px;color:var(--text);line-height:1.5;}
 .macro-key-row{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
+.macro-confianca{display:inline-flex;align-items:center;font-size:9px;font-weight:700;letter-spacing:1px;padding:4px 10px;}
+.macro-conf-alta {background:rgba(0,200,117,.1);border:1px solid rgba(0,200,117,.3);color:var(--green);}
+.macro-conf-media{background:rgba(245,216,66,.1);border:1px solid rgba(245,216,66,.3);color:var(--yellow);}
+.macro-conf-baixa{background:rgba(255,61,87,.1);border:1px solid rgba(255,61,87,.3);color:var(--red);}
+.macro-signals{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+.macro-signal-block{background:var(--bg3);border:1px solid var(--border);padding:9px 11px;}
+.macro-signal-lbl{font-size:7px;letter-spacing:2px;text-transform:uppercase;margin-bottom:5px;}
+.macro-signal-list{list-style:none;padding:0;margin:0;}
+.macro-signal-list li{font-size:9px;color:var(--text-mid);padding:2px 0;line-height:1.4;}
+.macro-signal-list.pos li::before{content:'▲ ';color:var(--green);}
+.macro-signal-list.neg li::before{content:'▼ ';color:var(--red);}
+.macro-alerta-block{background:rgba(240,160,32,.06);border:1px solid rgba(240,160,32,.25);padding:9px 12px;margin-top:8px;}
+.macro-alerta-lbl{font-size:7px;letter-spacing:2px;color:var(--amber-lo);text-transform:uppercase;margin-bottom:3px;}
+.macro-alerta-val{font-size:10px;color:var(--amber);line-height:1.5;}
 </style>
 </head>
 <body>
@@ -2932,8 +2946,8 @@ async function analyzeMacro() {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
-        system: 'Você é analista macro sênior. Com base nos indicadores fornecidos, retorne exatamente neste formato JSON (sem markdown, sem texto fora do JSON): {"veredito":"RISK-ON","resumo":"frase de uma linha","cripto":"impacto em uma linha","br":"impacto em uma linha","fiis":"impacto em uma linha","alerta":"evento macro relevante do dia se houver"}. Valores válidos para veredito: RISK-ON, RISK-OFF, NEUTRO.',
+        max_tokens: 700,
+        system: 'Você é gestor macro sênior de um fundo multimercado global. Analise a CONVERGÊNCIA entre os indicadores fornecidos. Retorne APENAS JSON válido sem markdown, neste formato exato: {"veredito":"RISK-ON","confianca":"ALTA","resumo":"tese macro em 2 linhas","sinais_positivos":["indicador1","indicador2"],"sinais_negativos":["indicador1","indicador2"],"cripto":"impacto específico para cripto","br_acoes":"impacto para ações BR considerando Selic","fiis":"impacto para FIIs considerando curva de juros BR","alerta":"divergência ou risco crítico a monitorar"}. Regras: RISK-ON só com confiança ALTA quando maioria converge. RISK-OFF com qualquer sinal sistêmico forte (VIX>25, DXY>105). NEUTRO quando há conflito relevante. Valores válidos para confianca: ALTA, MEDIA, BAIXA.',
         messages: [{ role: 'user', content: _buildMacroPrompt(macroData) }],
       }),
     });
@@ -2973,11 +2987,20 @@ function _buildMacroPrompt(d) {
     const c   = chg != null ? ` (${chg >= 0 ? '+' : ''}${chg}%)` : '';
     return val + c;
   };
+  const m2Str = d.usm2?.value != null
+    ? `$${(d.usm2.value / 1000).toFixed(1)}T${d.usm2.chg24 != null ? ` (MoM: ${d.usm2.chg24 >= 0 ? '+' : ''}${d.usm2.chg24}%)` : ''}`
+    : '—';
   return [
-    `DXY: ${fmt(d.dxy?.value, d.dxy?.chg24)}`,
-    `VIX: ${fmt(d.vix?.value, d.vix?.chg24)}`,
+    `DXY (Dólar Index): ${fmt(d.dxy?.value, d.dxy?.chg24)}`,
+    `VIX (Vol equities): ${fmt(d.vix?.value, d.vix?.chg24)}`,
+    `MOVE (Vol bonds): ${fmt(d.move?.value, d.move?.chg24)}`,
     `US 10Y Yield: ${fmt(d.us10y?.value, d.us10y?.chg24)}%`,
-    `Fear & Greed: ${d.fear_greed?.value ?? '—'} — ${d.fear_greed?.classification ?? '—'}`,
+    `US 30Y Yield: ${fmt(d.us30y?.value, d.us30y?.chg24)}%`,
+    `Ouro (Gold): ${fmt(d.gold?.value, d.gold?.chg24)} USD/oz`,
+    `Petróleo WTI: ${fmt(d.oil?.value, d.oil?.chg24)} USD/bbl`,
+    `S&P 500: ${fmt(d.sp500?.value, d.sp500?.chg24)}`,
+    `M2 EUA (massa monetária): ${m2Str}`,
+    `Fear & Greed Index: ${d.fear_greed?.value ?? '—'} — ${d.fear_greed?.classification ?? '—'}`,
     `Dominância BTC: ${d.btc_dom?.value ?? '—'}%`,
   ].join('\n');
 }
@@ -2985,21 +3008,30 @@ function _buildMacroPrompt(d) {
 function renderMacroInds(d) {
   const wrap = document.getElementById('macro-inds');
   if (!wrap) return;
+  const n = (v, dec) => v != null ? v.toFixed(dec) : null;
   const inds = [
-    { lbl: 'DXY',          val: d.dxy?.value       != null ? d.dxy.value.toFixed(2)       : '—', chg: d.dxy?.chg24,    sub: null },
-    { lbl: 'VIX',          val: d.vix?.value       != null ? d.vix.value.toFixed(2)       : '—', chg: d.vix?.chg24,    sub: null },
-    { lbl: 'US 10Y',       val: d.us10y?.value     != null ? d.us10y.value.toFixed(3)+'%' : '—', chg: d.us10y?.chg24,  sub: null },
-    { lbl: 'FEAR & GREED', val: d.fear_greed?.value != null ? String(d.fear_greed.value)  : '—', chg: null,             sub: d.fear_greed?.classification },
-    { lbl: 'DOM BTC',      val: d.btc_dom?.value   != null ? d.btc_dom.value.toFixed(2)+'%': '—',chg: null,             sub: null },
+    { lbl: 'DXY',          val: n(d.dxy?.value, 2),                                                   chg: d.dxy?.chg24,   sub: null },
+    { lbl: 'VIX',          val: n(d.vix?.value, 2),                                                   chg: d.vix?.chg24,   sub: null },
+    { lbl: 'MOVE',         val: n(d.move?.value, 2),                                                  chg: d.move?.chg24,  sub: null },
+    { lbl: 'US 10Y',       val: d.us10y?.value  != null ? n(d.us10y.value, 3)  + '%' : null,          chg: d.us10y?.chg24, sub: null },
+    { lbl: 'US 30Y',       val: d.us30y?.value  != null ? n(d.us30y.value, 3)  + '%' : null,          chg: d.us30y?.chg24, sub: null },
+    { lbl: 'GOLD',         val: d.gold?.value   != null ? n(d.gold.value, 0)          : null,         chg: d.gold?.chg24,  sub: null },
+    { lbl: 'OIL WTI',      val: d.oil?.value    != null ? n(d.oil.value, 2)           : null,         chg: d.oil?.chg24,   sub: null },
+    { lbl: 'S&P 500',      val: d.sp500?.value  != null ? n(d.sp500.value, 0)         : null,         chg: d.sp500?.chg24, sub: null },
+    { lbl: 'M2 EUA',       val: d.usm2?.value   != null ? '$'+(d.usm2.value/1000).toFixed(1)+'T': null, chg: d.usm2?.chg24, sub: 'MoM' },
+    { lbl: 'FEAR & GREED', val: d.fear_greed?.value != null ? String(d.fear_greed.value) : null,      chg: null,           sub: d.fear_greed?.classification },
+    { lbl: 'DOM BTC',      val: d.btc_dom?.value != null ? n(d.btc_dom.value, 2) + '%' : null,        chg: null,           sub: null },
   ];
   wrap.innerHTML = inds.map(i => {
+    const display  = i.val ?? '—';
     const chgColor = i.chg == null ? '' : i.chg >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+    const chgLabel = i.chg != null && i.sub === 'MoM' ? 'MoM' : '%';
     const chgHtml  = i.chg != null
-      ? `<div class="macro-ind-chg" style="${chgColor}">${i.chg >= 0 ? '+' : ''}${i.chg}%</div>`
-      : (i.sub ? `<div class="macro-ind-chg" style="color:var(--text-dim);font-size:7px;">${i.sub}</div>` : '');
+      ? `<div class="macro-ind-chg" style="${chgColor}">${i.chg >= 0 ? '+' : ''}${i.chg}${chgLabel}</div>`
+      : (i.sub && i.sub !== 'MoM' ? `<div class="macro-ind-chg" style="color:var(--text-dim);font-size:7px;">${i.sub}</div>` : '');
     return `<div class="macro-ind">
       <div class="macro-ind-lbl">${i.lbl}</div>
-      <div class="macro-ind-val">${i.val}</div>
+      <div class="macro-ind-val">${display}</div>
       ${chgHtml}
     </div>`;
   }).join('');
@@ -3011,34 +3043,70 @@ function renderMacroResult(a) {
   const aWrap = document.getElementById('macro-analysis-wrap');
   if (!block) return;
 
-  const map = {
+  const verdMap = {
     'RISK-ON':  { cls: 'macro-ron',  ico: '🟢' },
     'RISK-OFF': { cls: 'macro-roff', ico: '🔴' },
     'NEUTRO':   { cls: 'macro-neut', ico: '🟡' },
   };
-  const v = map[a.veredito] || map['NEUTRO'];
+  const confMap = {
+    'ALTA':  'macro-conf-alta',
+    'MEDIA': 'macro-conf-media',
+    'BAIXA': 'macro-conf-baixa',
+  };
+  const v       = verdMap[a.veredito] || verdMap['NEUTRO'];
+  const confCls = confMap[a.confianca] || 'macro-conf-media';
+  const resumo  = (a.resumo || '').replace(/\n/g, '<br>');
 
   if (vWrap) vWrap.innerHTML = `
-    <div class="macro-verdict-badge ${v.cls}">${v.ico} ${a.veredito || 'NEUTRO'}</div>
-    <div style="font-size:10px;color:var(--text-mid);margin-bottom:8px;">${a.resumo || ''}</div>
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+      <div class="macro-verdict-badge ${v.cls}">${v.ico} ${a.veredito || 'NEUTRO'}</div>
+      ${a.confianca ? `<span class="macro-confianca ${confCls}">CONFIANÇA ${a.confianca}</span>` : ''}
+    </div>
+    <div style="font-size:10px;color:var(--text-mid);margin-bottom:12px;line-height:1.7;">${resumo}</div>
   `;
 
-  const fields = [
-    { lbl: 'Cripto',      val: a.cripto },
-    { lbl: 'Mercado BR',  val: a.br },
-    { lbl: 'FIIs',        val: a.fiis },
-    { lbl: 'Alerta',      val: a.alerta },
-  ].filter(f => f.val && f.val !== '—' && f.val.trim() !== '');
+  let html = '';
 
-  if (aWrap && fields.length) {
-    aWrap.innerHTML = `<div class="macro-grid">${
-      fields.map(f => `<div class="macro-item">
+  // Sinais positivos / negativos
+  const pos = Array.isArray(a.sinais_positivos) ? a.sinais_positivos.filter(Boolean) : [];
+  const neg = Array.isArray(a.sinais_negativos) ? a.sinais_negativos.filter(Boolean) : [];
+  if (pos.length || neg.length) {
+    html += `<div class="macro-signals">
+      <div class="macro-signal-block">
+        <div class="macro-signal-lbl" style="color:var(--green);">Sinais Positivos</div>
+        <ul class="macro-signal-list pos">${pos.map(s => `<li>${s}</li>`).join('') || '<li style="color:var(--text-dim)">—</li>'}</ul>
+      </div>
+      <div class="macro-signal-block">
+        <div class="macro-signal-lbl" style="color:var(--red);">Sinais Negativos</div>
+        <ul class="macro-signal-list neg">${neg.map(s => `<li>${s}</li>`).join('') || '<li style="color:var(--text-dim)">—</li>'}</ul>
+      </div>
+    </div>`;
+  }
+
+  // Impacto por classe de ativo
+  const classes = [
+    { lbl: 'Cripto',    val: a.cripto   },
+    { lbl: 'Ações BR',  val: a.br_acoes },
+    { lbl: 'FIIs',      val: a.fiis     },
+  ].filter(f => f.val && f.val.trim() && f.val !== '—');
+  if (classes.length) {
+    html += `<div class="macro-grid">${
+      classes.map(f => `<div class="macro-item">
         <div class="macro-item-lbl">${f.lbl}</div>
         <div class="macro-item-val">${f.val}</div>
       </div>`).join('')
     }</div>`;
   }
 
+  // Alerta destacado
+  if (a.alerta && a.alerta.trim() && a.alerta !== '—') {
+    html += `<div class="macro-alerta-block">
+      <div class="macro-alerta-lbl">⚠ Alerta / Divergência</div>
+      <div class="macro-alerta-val">${a.alerta}</div>
+    </div>`;
+  }
+
+  if (aWrap) aWrap.innerHTML = html;
   block.style.display = '';
 }
 
