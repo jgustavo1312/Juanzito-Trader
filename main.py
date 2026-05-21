@@ -338,6 +338,58 @@ async def registrar_trade(request: Request):
         await client.post(DISCORD_DIARIO, json=embed)
     return {"status": "registrado", "ticker": ticker, "rr": rr}
 
+@app.get("/macro")
+async def get_macro():
+    async def fetch_yf(sym: str) -> dict:
+        try:
+            t = yf.Ticker(sym)
+            df = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: t.history(period="5d", interval="1d", auto_adjust=True)
+            )
+            if df.empty:
+                return {"value": None, "chg24": None}
+            price = float(df["Close"].iloc[-1])
+            prev  = float(df["Close"].iloc[-2]) if len(df) > 1 else price
+            chg24 = round((price - prev) / prev * 100, 4) if prev else 0
+            return {"value": round(price, 4), "chg24": chg24}
+        except Exception as e:
+            return {"value": None, "chg24": None, "error": str(e)}
+
+    async def fetch_fear_greed() -> dict:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get("https://api.alternative.me/fng/?limit=1")
+                d = r.json()["data"][0]
+                return {"value": int(d["value"]), "classification": d["value_classification"]}
+        except Exception as e:
+            return {"value": None, "classification": None, "error": str(e)}
+
+    async def fetch_btc_dom() -> dict:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get("https://api.coingecko.com/api/v3/global")
+                pct = r.json()["data"]["market_cap_percentage"]["btc"]
+                return {"value": round(pct, 2)}
+        except Exception as e:
+            return {"value": None, "error": str(e)}
+
+    dxy, vix, us10y, fear_greed, btc_dom = await asyncio.gather(
+        fetch_yf("DX-Y.NYB"),
+        fetch_yf("^VIX"),
+        fetch_yf("^TNX"),
+        fetch_fear_greed(),
+        fetch_btc_dom(),
+    )
+    return {
+        "dxy":        dxy,
+        "vix":        vix,
+        "us10y":      us10y,
+        "fear_greed": fear_greed,
+        "btc_dom":    btc_dom,
+        "timestamp":  datetime.now().isoformat(),
+    }
+
+
 @app.post("/order")
 async def order(request: Request):
     data   = await request.json()

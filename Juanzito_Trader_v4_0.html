@@ -665,6 +665,27 @@ input.locked-field{
 .aic-item{display:flex;flex-direction:column;gap:3px;}
 .aic-lbl{font-size:8px;letter-spacing:2px;color:var(--text-dim);text-transform:uppercase;}
 .aic-val{font-size:16px;font-weight:700;font-family:'Bebas Neue',cursive;letter-spacing:2px;}
+
+/* ==========================================
+   v4.0 — CONTEXTO MACRO
+   ========================================== */
+.macro-block{background:var(--bg2);border:1px solid var(--border);padding:16px 18px;margin-bottom:16px;}
+.macro-block-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.macro-block-ttl{font-size:8px;letter-spacing:3px;color:var(--amber-lo);text-transform:uppercase;}
+.macro-inds{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+.macro-ind{background:var(--bg3);border:1px solid var(--border);padding:8px 12px;min-width:82px;}
+.macro-ind-lbl{font-size:7px;letter-spacing:2px;color:var(--text-dim);text-transform:uppercase;margin-bottom:3px;}
+.macro-ind-val{font-family:'Bebas Neue',cursive;font-size:18px;letter-spacing:2px;line-height:1;}
+.macro-ind-chg{font-size:8px;margin-top:2px;}
+.macro-verdict-badge{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:2px;padding:7px 16px;margin-bottom:10px;}
+.macro-ron {background:rgba(0,200,117,.12);border:1px solid var(--green);color:var(--green);}
+.macro-roff{background:rgba(255,61,87,.12);border:1px solid var(--red);color:var(--red);}
+.macro-neut{background:rgba(245,216,66,.1);border:1px solid var(--yellow);color:var(--yellow);}
+.macro-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:8px;margin-top:8px;}
+.macro-item{background:var(--bg3);border:1px solid var(--border);padding:9px 11px;}
+.macro-item-lbl{font-size:7px;letter-spacing:2px;color:var(--amber-lo);text-transform:uppercase;margin-bottom:3px;}
+.macro-item-val{font-size:10px;color:var(--text);line-height:1.5;}
+.macro-key-row{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
 </style>
 </head>
 <body>
@@ -721,6 +742,35 @@ input.locked-field{
      v2.0 — SEÇÃO CAÇA (Checklist de Entrada)
      ========================================== -->
 <div id="section-caca" class="v2-section">
+
+  <!-- ==========================================
+       v4.0 — CONTEXTO MACRO
+       ========================================== -->
+  <div class="macro-block">
+    <div class="macro-block-head">
+      <span class="macro-block-ttl">Contexto Macro</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span id="macro-ts" style="font-size:8px;color:var(--text-dim);"></span>
+        <button class="btn btn-sm" onclick="analyzeMacro()"><span id="macro-ico">⚡</span> ANALISAR MACRO</button>
+      </div>
+    </div>
+    <div class="macro-inds" id="macro-inds">
+      <span style="font-size:9px;color:var(--text-dim);padding:4px 0;">Clique em ANALISAR MACRO para buscar os indicadores.</span>
+    </div>
+    <div id="macro-result-block" style="display:none;">
+      <div id="macro-verdict-wrap"></div>
+      <div id="macro-analysis-wrap"></div>
+    </div>
+    <div class="macro-key-row" id="macro-key-row">
+      <div class="field-lbl" style="margin-bottom:5px;">Chave API Anthropic <span style="color:var(--text-dim);font-size:8px;">(salva localmente, nunca enviada ao Railway)</span></div>
+      <div style="display:flex;gap:8px;">
+        <input type="password" id="macro-api-key" placeholder="sk-ant-..." style="flex:1;">
+        <button class="btn btn-sm btn-primary" onclick="saveMacroKey()">SALVAR</button>
+        <button class="btn btn-sm" onclick="document.getElementById('macro-key-row').style.display='none'">✕</button>
+      </div>
+    </div>
+  </div>
+
   <div class="v2-sec-ttl">CHECKLIST DE ENTRADA</div>
   <div class="entry-cl-card">
 
@@ -2831,6 +2881,190 @@ async function loadAlerta() {
     badge.textContent = 'Sem dados de alerta — preencha manualmente';
   }
 }
+
+// ==========================================
+// v4.0 — CONTEXTO MACRO + ANTHROPIC
+// ==========================================
+
+const MACRO_CACHE_LS = 'jt_macro_cache';
+const MACRO_KEY_LS   = 'jt_anthropic_key';
+
+function saveMacroKey() {
+  const inp = document.getElementById('macro-api-key');
+  const key = (inp?.value || '').trim();
+  if (!key || !key.startsWith('sk-')) {
+    alert('Cole uma chave Anthropic válida (começa com sk-).');
+    return;
+  }
+  localStorage.setItem(MACRO_KEY_LS, key);
+  const row = document.getElementById('macro-key-row');
+  if (row) row.style.display = 'none';
+  if (inp) inp.value = '';
+}
+
+async function analyzeMacro() {
+  const ico = document.getElementById('macro-ico');
+  const btn = document.querySelector('[onclick="analyzeMacro()"]');
+  if (ico) { ico.className = 'spin'; ico.textContent = '⟳'; }
+  if (btn) btn.disabled = true;
+
+  try {
+    const resp = await fetch(`${RAILWAY_URL}/macro`);
+    if (!resp.ok) throw new Error('Endpoint /macro indisponível (status ' + resp.status + ')');
+    const macroData = await resp.json();
+
+    renderMacroInds(macroData);
+
+    const key = localStorage.getItem(MACRO_KEY_LS);
+    if (!key) {
+      const row = document.getElementById('macro-key-row');
+      if (row) row.style.display = '';
+      return;
+    }
+
+    const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        system: 'Você é analista macro sênior. Com base nos indicadores fornecidos, retorne exatamente neste formato JSON (sem markdown, sem texto fora do JSON): {"veredito":"RISK-ON","resumo":"frase de uma linha","cripto":"impacto em uma linha","br":"impacto em uma linha","fiis":"impacto em uma linha","alerta":"evento macro relevante do dia se houver"}. Valores válidos para veredito: RISK-ON, RISK-OFF, NEUTRO.',
+        messages: [{ role: 'user', content: _buildMacroPrompt(macroData) }],
+      }),
+    });
+
+    const aiJson = await aiResp.json();
+    if (aiJson.error) throw new Error(aiJson.error.message);
+
+    const rawText = aiJson.content?.[0]?.text || '{}';
+    let analysis;
+    try {
+      const m = rawText.match(/\{[\s\S]*\}/);
+      analysis = JSON.parse(m ? m[0] : rawText);
+    } catch(_) {
+      analysis = { veredito: 'NEUTRO', resumo: rawText.slice(0, 120), cripto: '—', br: '—', fiis: '—', alerta: '' };
+    }
+
+    localStorage.setItem(MACRO_CACHE_LS, JSON.stringify({ macroData, analysis, ts: new Date().toISOString() }));
+
+    renderMacroResult(analysis);
+    _renderMacroTs('Atualizado ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+
+    if (analysis.veredito === 'RISK-ON')  setRisk('on');
+    if (analysis.veredito === 'RISK-OFF') setRisk('off');
+
+  } catch(e) {
+    const inds = document.getElementById('macro-inds');
+    if (inds) inds.innerHTML = `<span style="color:var(--red);font-size:9px;">Erro: ${e.message}</span>`;
+  } finally {
+    if (ico) { ico.className = ''; ico.textContent = '⚡'; }
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _buildMacroPrompt(d) {
+  const fmt = (v, chg) => {
+    const val = v != null ? v : '—';
+    const c   = chg != null ? ` (${chg >= 0 ? '+' : ''}${chg}%)` : '';
+    return val + c;
+  };
+  return [
+    `DXY: ${fmt(d.dxy?.value, d.dxy?.chg24)}`,
+    `VIX: ${fmt(d.vix?.value, d.vix?.chg24)}`,
+    `US 10Y Yield: ${fmt(d.us10y?.value, d.us10y?.chg24)}%`,
+    `Fear & Greed: ${d.fear_greed?.value ?? '—'} — ${d.fear_greed?.classification ?? '—'}`,
+    `Dominância BTC: ${d.btc_dom?.value ?? '—'}%`,
+  ].join('\n');
+}
+
+function renderMacroInds(d) {
+  const wrap = document.getElementById('macro-inds');
+  if (!wrap) return;
+  const inds = [
+    { lbl: 'DXY',          val: d.dxy?.value       != null ? d.dxy.value.toFixed(2)       : '—', chg: d.dxy?.chg24,    sub: null },
+    { lbl: 'VIX',          val: d.vix?.value       != null ? d.vix.value.toFixed(2)       : '—', chg: d.vix?.chg24,    sub: null },
+    { lbl: 'US 10Y',       val: d.us10y?.value     != null ? d.us10y.value.toFixed(3)+'%' : '—', chg: d.us10y?.chg24,  sub: null },
+    { lbl: 'FEAR & GREED', val: d.fear_greed?.value != null ? String(d.fear_greed.value)  : '—', chg: null,             sub: d.fear_greed?.classification },
+    { lbl: 'DOM BTC',      val: d.btc_dom?.value   != null ? d.btc_dom.value.toFixed(2)+'%': '—',chg: null,             sub: null },
+  ];
+  wrap.innerHTML = inds.map(i => {
+    const chgColor = i.chg == null ? '' : i.chg >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+    const chgHtml  = i.chg != null
+      ? `<div class="macro-ind-chg" style="${chgColor}">${i.chg >= 0 ? '+' : ''}${i.chg}%</div>`
+      : (i.sub ? `<div class="macro-ind-chg" style="color:var(--text-dim);font-size:7px;">${i.sub}</div>` : '');
+    return `<div class="macro-ind">
+      <div class="macro-ind-lbl">${i.lbl}</div>
+      <div class="macro-ind-val">${i.val}</div>
+      ${chgHtml}
+    </div>`;
+  }).join('');
+}
+
+function renderMacroResult(a) {
+  const block = document.getElementById('macro-result-block');
+  const vWrap = document.getElementById('macro-verdict-wrap');
+  const aWrap = document.getElementById('macro-analysis-wrap');
+  if (!block) return;
+
+  const map = {
+    'RISK-ON':  { cls: 'macro-ron',  ico: '🟢' },
+    'RISK-OFF': { cls: 'macro-roff', ico: '🔴' },
+    'NEUTRO':   { cls: 'macro-neut', ico: '🟡' },
+  };
+  const v = map[a.veredito] || map['NEUTRO'];
+
+  if (vWrap) vWrap.innerHTML = `
+    <div class="macro-verdict-badge ${v.cls}">${v.ico} ${a.veredito || 'NEUTRO'}</div>
+    <div style="font-size:10px;color:var(--text-mid);margin-bottom:8px;">${a.resumo || ''}</div>
+  `;
+
+  const fields = [
+    { lbl: 'Cripto',      val: a.cripto },
+    { lbl: 'Mercado BR',  val: a.br },
+    { lbl: 'FIIs',        val: a.fiis },
+    { lbl: 'Alerta',      val: a.alerta },
+  ].filter(f => f.val && f.val !== '—' && f.val.trim() !== '');
+
+  if (aWrap && fields.length) {
+    aWrap.innerHTML = `<div class="macro-grid">${
+      fields.map(f => `<div class="macro-item">
+        <div class="macro-item-lbl">${f.lbl}</div>
+        <div class="macro-item-val">${f.val}</div>
+      </div>`).join('')
+    }</div>`;
+  }
+
+  block.style.display = '';
+}
+
+function _renderMacroTs(txt) {
+  const el = document.getElementById('macro-ts');
+  if (el) el.textContent = txt;
+}
+
+(function macroInit() {
+  const key = localStorage.getItem(MACRO_KEY_LS);
+  const row = document.getElementById('macro-key-row');
+  if (row) row.style.display = key ? 'none' : '';
+
+  try {
+    const raw = localStorage.getItem(MACRO_CACHE_LS);
+    if (!raw) return;
+    const cache = JSON.parse(raw);
+    if (!cache.ts || !cache.macroData) return;
+
+    renderMacroInds(cache.macroData);
+    if (cache.analysis) renderMacroResult(cache.analysis);
+
+    const d = new Date(cache.ts);
+    _renderMacroTs('Cache: ' + d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }));
+  } catch(_) {}
+})();
 
 // ===== v3 INIT =====
 (function v3Init() {
