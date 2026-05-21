@@ -338,6 +338,93 @@ async def registrar_trade(request: Request):
         await client.post(DISCORD_DIARIO, json=embed)
     return {"status": "registrado", "ticker": ticker, "rr": rr}
 
+async def fetch_focus_bcb() -> list:
+    ano = str(datetime.now().year)
+    base = "https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata"
+
+    async def _call(path, params, label):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get(f"{base}/{path}", params=params)
+                items = r.json().get("value", [])
+                if items and items[0].get("Mediana") is not None:
+                    return {"label": label, "value": f"{items[0]['Mediana']}%"}
+        except Exception:
+            pass
+        return {"label": label, "value": None}
+
+    try:
+        ipca, selic, pib = await asyncio.gather(
+            _call(
+                "ExpectativasMercadoSuavizadas12Meses",
+                {"$filter": "Indicador eq 'IPCA' and Suavizado eq 'S'",
+                 "$orderby": "Data desc", "$top": "1", "$format": "json",
+                 "$select": "Indicador,Data,Mediana"},
+                "IPCA 12m esperado",
+            ),
+            _call(
+                "ExpectativasMercadoAnuais",
+                {"$filter": f"Indicador eq 'Selic' and Ano eq '{ano}' and baseCalculo eq '0'",
+                 "$orderby": "Data desc", "$top": "1", "$format": "json",
+                 "$select": "Indicador,Ano,Data,Mediana"},
+                "Selic esperada",
+            ),
+            _call(
+                "ExpectativasMercadoAnuais",
+                {"$filter": f"Indicador eq 'PIB Total' and Ano eq '{ano}'",
+                 "$orderby": "Data desc", "$top": "1", "$format": "json",
+                 "$select": "Indicador,Ano,Data,Mediana"},
+                "PIB esperado",
+            ),
+        )
+        return [ipca, selic, pib]
+    except Exception:
+        return [{"label": "IPCA 12m esperado", "value": None},
+                {"label": "Selic esperada", "value": None},
+                {"label": "PIB esperado", "value": None}]
+
+
+async def fetch_anbima_ntnb():
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.anbima.com.br/feed/precos-indices/v1/titulos-publicos/mercado-secundario-tpf",
+                params={"codigoTitulo": "NTN-B"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                items = data if isinstance(data, list) else data.get("items", [])
+                for item in items:
+                    vencimento = str(item.get("dataVencimento", ""))
+                    if "2029" in vencimento:
+                        taxa = item.get("taxaCompra") or item.get("taxaVenda") or item.get("taxa")
+                        if taxa is not None:
+                            return {"label": "Inflação implícita NTN-B", "value": f"{round(float(taxa), 2)}%"}
+    except Exception:
+        pass
+    return None
+
+
+async def fetch_di_curve() -> list:
+    tickers = [
+        ("DI1F26.SA", "DI Jan/2026"),
+        ("DI1F28.SA", "DI Jan/2028"),
+        ("DI1F33.SA", "DI Jan/2033"),
+    ]
+    results = []
+    for ticker_sym, label in tickers:
+        try:
+            df = await asyncio.get_event_loop().run_in_executor(
+                None, lambda s=ticker_sym: yf.Ticker(s).history(period="5d", interval="1d", auto_adjust=True)
+            )
+            if not df.empty:
+                val = float(df["Close"].iloc[-1])
+                results.append({"label": label, "value": f"{round(val, 3)}%"})
+        except Exception:
+            pass
+    return results
+
+
 @app.get("/macro")
 async def get_macro():
     async def fetch_yf(sym: str, period: str = "5d", interval: str = "1d") -> dict:
@@ -373,7 +460,7 @@ async def get_macro():
         except Exception as e:
             return {"value": None, "error": str(e)}
 
-    dxy, vix, us10y, us30y, move, gold, oil, sp500, usm2, fear_greed, btc_dom = await asyncio.gather(
+    dxy, vix, us10y, us30y, move, gold, oil, sp500, usm2, fear_greed, btc_dom, focus_bcb, anbima_ntnb, di_curve = await asyncio.gather(
         fetch_yf("DX-Y.NYB"),
         fetch_yf("^VIX"),
         fetch_yf("^TNX"),
@@ -385,7 +472,18 @@ async def get_macro():
         fetch_yf("M2SL", "1y", "1mo"),
         fetch_fear_greed(),
         fetch_btc_dom(),
+        fetch_focus_bcb(),
+        fetch_anbima_ntnb(),
+        fetch_di_curve(),
     )
+    try:
+        brasil_block = {
+            "focus":              focus_bcb,
+            "di_curve":           di_curve,
+            "inflacao_implicita": anbima_ntnb,
+        }
+    except Exception:
+        brasil_block = None
     return {
         "dxy":        dxy,
         "vix":        vix,
@@ -398,6 +496,7 @@ async def get_macro():
         "usm2":       usm2,
         "fear_greed": fear_greed,
         "btc_dom":    btc_dom,
+        "brasil":     brasil_block,
         "timestamp":  datetime.now().isoformat(),
     }
 

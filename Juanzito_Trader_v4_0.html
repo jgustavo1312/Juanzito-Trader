@@ -2952,7 +2952,7 @@ async function analyzeMacro() {
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 700,
-        system: 'Você é um gestor macro sênior. Analise os indicadores fornecidos e retorne EXCLUSIVAMENTE um JSON válido, sem texto adicional, sem markdown, sem blocos de código.\n\nLÓGICA POR CLASSE:\n- CRIPTO: peso BTC.D, Fear&Greed, DXY, VIX. BTC.D>60% penaliza altcoins. Fear&Greed<30 = cautela mesmo com DXY fraco.\n- ACOES_USA: peso US30Y, US10Y, VIX, DXY, SP500. US30Y>5% = headwind severo para crescimento. VIX<20 necessário para RISK-ON.\n- ACOES_BR: peso DXY, VIX, Oil, Gold, juros BR (se disponível). DXY fraco favorece emergentes mas Oil>90 pressiona inflação BR.\n- FIIS: separar papel vs tijolo. Taxa alta (US10Y>4.5%) = RISK-ON para papel (receita sobe), RISK-OFF para tijolo (custo de capital sobe). Gold alto reforça proteção inflacionária para FIIS de papel.\n\nREGRAS GLOBAIS:\n- VIX>25 OU DXY>105 implica RISK-OFF em todas as classes.\n- Gold>4000 + Oil>90 + Fear&Greed<30 = stagflação, penaliza ações USA e tijolo.\n- MOVE>100 = stress de bonds, cautela geral.\n\nRetorne este JSON exato: {"veredito_global":"RISK-ON","confianca":"ALTA","resumo":"frase única de até 15 palavras explicando o cenário","classes":{"cripto":{"veredito":"RISK-ON","motivo":"até 12 palavras"},"acoes_usa":{"veredito":"RISK-ON","motivo":"até 12 palavras"},"acoes_br":{"veredito":"RISK-ON","motivo":"até 12 palavras"},"fiis":{"veredito":"RISK-ON","motivo":"até 12 palavras"}},"sinais_positivos":["máx 3 itens"],"sinais_negativos":["máx 3 itens"],"alerta":"string ou - se não houver"}',
+        system: 'Você é um gestor macro sênior. Analise os indicadores fornecidos e retorne EXCLUSIVAMENTE um JSON válido, sem texto adicional, sem markdown, sem blocos de código.\n\nLÓGICA POR CLASSE:\n- CRIPTO: peso BTC.D, Fear&Greed, DXY, VIX. BTC.D>60% penaliza altcoins. Fear&Greed<30 = cautela mesmo com DXY fraco.\n- ACOES_USA: peso US30Y, US10Y, VIX, DXY, SP500. US30Y>5% = headwind severo para crescimento. VIX<20 necessário para RISK-ON.\n- ACOES_BR: analise com dados domésticos quando disponíveis. IPCA esperado >6% = pressão sobre margens e Selic alta. Selic esperada >13.5% = custo de capital alto, penaliza crescimento mas favorece valor e dividendos. DI2028 inclinação: curva fechando = expectativa de corte (positivo); curva abrindo = risco fiscal (negativo). DXY fraco favorece fluxo para emergentes. PIB esperado >2% = ambiente operacional saudável.\n- FIIS: use dados domésticos para separar papel de tijolo. IPCA esperado alto + Selic alta = RISK-ON para papel (KNCR, KNIP, RBRR, RBRY, MCCI recebem mais receita). Selic >13.5% = RISK-OFF para tijolo (VILG, BRCO, BTLG, BRCR sofrem com cap rate e vacância). Inflação implícita NTN-B alta reforça tese de papel. DI longo fechando = sinal positivo para tijolo.\n\nREGRAS GLOBAIS:\n- VIX>25 OU DXY>105 implica RISK-OFF em todas as classes.\n- Gold>4000 + Oil>90 + Fear&Greed<30 = stagflação, penaliza ações USA e tijolo.\n- MOVE>100 = stress de bonds, cautela geral.\n\nRetorne este JSON exato: {"veredito_global":"RISK-ON","confianca":"ALTA","resumo":"frase única de até 15 palavras explicando o cenário","classes":{"cripto":{"veredito":"RISK-ON","motivo":"até 12 palavras"},"acoes_usa":{"veredito":"RISK-ON","motivo":"até 12 palavras"},"acoes_br":{"veredito":"RISK-ON","motivo":"até 12 palavras"},"fiis":{"veredito":"RISK-ON","motivo":"até 12 palavras"}},"sinais_positivos":["máx 3 itens"],"sinais_negativos":["máx 3 itens"],"alerta":"string ou - se não houver"}',
         messages: [{ role: 'user', content: _buildMacroPrompt(macroData) }],
       }),
     });
@@ -2995,7 +2995,7 @@ function _buildMacroPrompt(d) {
   const m2Str = d.usm2?.value != null
     ? `$${(d.usm2.value / 1000).toFixed(1)}T${d.usm2.chg24 != null ? ` (MoM: ${d.usm2.chg24 >= 0 ? '+' : ''}${d.usm2.chg24}%)` : ''}`
     : '—';
-  return [
+  const lines = [
     `DXY (Dólar Index): ${fmt(d.dxy?.value, d.dxy?.chg24)}`,
     `VIX (Vol equities): ${fmt(d.vix?.value, d.vix?.chg24)}`,
     `MOVE (Vol bonds): ${fmt(d.move?.value, d.move?.chg24)}`,
@@ -3007,7 +3007,16 @@ function _buildMacroPrompt(d) {
     `M2 EUA (massa monetária): ${m2Str}`,
     `Fear & Greed Index: ${d.fear_greed?.value ?? '—'} — ${d.fear_greed?.classification ?? '—'}`,
     `Dominância BTC: ${d.btc_dom?.value ?? '—'}%`,
-  ].join('\n');
+  ];
+  if (d.brasil) {
+    const focus = (d.brasil.focus || []).filter(i => i && i.value != null);
+    const di    = (d.brasil.di_curve || []).filter(i => i && i.value != null);
+    const impl  = d.brasil.inflacao_implicita;
+    focus.forEach(i => lines.push(`${i.label}: ${i.value}`));
+    di.forEach(i => lines.push(`${i.label}: ${i.value}`));
+    if (impl && impl.value != null) lines.push(`${impl.label}: ${impl.value}`);
+  }
+  return lines.join('\n');
 }
 
 function renderMacroInds(d) {
@@ -3027,7 +3036,7 @@ function renderMacroInds(d) {
     { lbl: 'FEAR & GREED', val: d.fear_greed?.value != null ? String(d.fear_greed.value) : null,      chg: null,           sub: d.fear_greed?.classification },
     { lbl: 'DOM BTC',      val: d.btc_dom?.value != null ? n(d.btc_dom.value, 2) + '%' : null,        chg: null,           sub: null },
   ];
-  wrap.innerHTML = inds.map(i => {
+  let html = inds.map(i => {
     const display  = i.val ?? '—';
     const chgColor = i.chg == null ? '' : i.chg >= 0 ? 'color:var(--green)' : 'color:var(--red)';
     const chgLabel = i.chg != null && i.sub === 'MoM' ? 'MoM' : '%';
@@ -3040,6 +3049,16 @@ function renderMacroInds(d) {
       ${chgHtml}
     </div>`;
   }).join('');
+  if (d.brasil) {
+    const brAll = [...(d.brasil.focus || []), ...(d.brasil.di_curve || [])].filter(i => i && i.value != null);
+    if (brAll.length) {
+      html += `<div style="width:100%;display:flex;gap:10px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border);margin-top:4px;">
+        <div style="width:100%;font-size:7px;letter-spacing:2px;color:var(--amber-lo);text-transform:uppercase;margin-bottom:2px;">BRASIL</div>
+        ${brAll.map(i => `<div class="macro-ind"><div class="macro-ind-lbl">${i.label}</div><div class="macro-ind-val">${i.value}</div></div>`).join('')}
+      </div>`;
+    }
+  }
+  wrap.innerHTML = html;
 }
 
 function renderMacroResult(a) {
