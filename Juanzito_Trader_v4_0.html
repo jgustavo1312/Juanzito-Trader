@@ -3003,6 +3003,7 @@ async function analyzeMacro() {
       analysis = { veredito_global: 'NEUTRO', confianca: 'BAIXA', resumo: rawText.slice(0, 120), classes: { cripto: { veredito: 'NEUTRO', motivo: '—' }, acoes_usa: { veredito: 'NEUTRO', motivo: '—' }, acoes_br: { veredito: 'NEUTRO', motivo: '—' }, fiis: { veredito: 'NEUTRO', motivo: '—' } }, sinais_positivos: [], sinais_negativos: [], alerta: '' };
     }
 
+    console.log('[MACRO_DATA]', JSON.stringify(macroData));
     applyHardRules(analysis, macroData);
 
     localStorage.setItem(MACRO_CACHE_LS, JSON.stringify({ macroData, analysis, ts: new Date().toISOString() }));
@@ -3162,6 +3163,7 @@ function applyHardRules(result, d) {
   const oil   = d.oil?.value ?? 0;
   const move  = d.move?.value ?? 0;
   const c     = result.classes;
+  console.log('[HARD_RULES] us30y=', us30y, 'fg=', fg, 'vix=', vix);
 
   // R7 — VIX > 25 ou DXY > 105 → todas as classes RISK-OFF (prioridade máxima)
   if (vix > 25 || dxy > 105) {
