@@ -3003,6 +3003,8 @@ async function analyzeMacro() {
       analysis = { veredito_global: 'NEUTRO', confianca: 'BAIXA', resumo: rawText.slice(0, 120), classes: { cripto: { veredito: 'NEUTRO', motivo: '—' }, acoes_usa: { veredito: 'NEUTRO', motivo: '—' }, acoes_br: { veredito: 'NEUTRO', motivo: '—' }, fiis: { veredito: 'NEUTRO', motivo: '—' } }, sinais_positivos: [], sinais_negativos: [], alerta: '' };
     }
 
+    applyHardRules(analysis, macroData);
+
     localStorage.setItem(MACRO_CACHE_LS, JSON.stringify({ macroData, analysis, ts: new Date().toISOString() }));
 
     renderMacroResult(analysis);
@@ -3148,6 +3150,94 @@ function renderMacroInds(d) {
     }
   }
   wrap.innerHTML = html;
+}
+
+function applyHardRules(result, d) {
+  const us30y = d.us30y?.value ?? 0;
+  const fg    = d.fear_greed?.value ?? 50;
+  const vix   = d.vix?.value ?? 15;
+  const dxy   = d.dxy?.value ?? 100;
+  const btcd  = d.btc_dom?.value ?? 50;
+  const gold  = d.gold?.value ?? 0;
+  const oil   = d.oil?.value ?? 0;
+  const move  = d.move?.value ?? 0;
+  const c     = result.classes;
+
+  // R7 — VIX > 25 ou DXY > 105 → todas as classes RISK-OFF (prioridade máxima)
+  if (vix > 25 || dxy > 105) {
+    const motivo = vix > 25
+      ? `VIX ${vix.toFixed(1)} stress sistêmico`
+      : `DXY ${dxy.toFixed(1)} acima 105`;
+    ['cripto', 'acoes_usa', 'acoes_br', 'fiis'].forEach(k => {
+      c[k].veredito = 'RISK-OFF';
+      c[k].motivo   = motivo;
+    });
+    result.veredito_global = 'RISK-OFF';
+    result.confianca = 'ALTA';
+    return result;
+  }
+
+  // R1 — US30Y >= 5.0% → AÇÕES USA = RISK-OFF absoluto
+  if (us30y >= 5.0) {
+    c.acoes_usa.veredito = 'RISK-OFF';
+    c.acoes_usa.motivo   = `US30Y ${us30y.toFixed(2)}% elimina prêmio equity`;
+  }
+  // R2 — US30Y >= 4.5% → AÇÕES USA máximo NEUTRO
+  else if (us30y >= 4.5 && c.acoes_usa.veredito === 'RISK-ON') {
+    c.acoes_usa.veredito = 'NEUTRO';
+    c.acoes_usa.motivo   = `US30Y ${us30y.toFixed(2)}% limita upside equity`;
+  }
+
+  // R3 — stagflação: Gold > 4000 + Oil > 90 + Fear < 35
+  if (gold > 4000 && oil > 90 && fg < 35) {
+    c.acoes_usa.veredito = 'RISK-OFF';
+    c.acoes_usa.motivo   = `Stagflação Gold ${gold.toFixed(0)}+Oil ${oil.toFixed(0)}`;
+    if (c.acoes_br.veredito === 'RISK-ON') {
+      c.acoes_br.veredito = 'NEUTRO';
+      c.acoes_br.motivo   = 'Stagflação global limita emergentes';
+    }
+  }
+
+  // R4 — Fear < 25 → CRIPTO = RISK-OFF
+  if (fg < 25) {
+    c.cripto.veredito = 'RISK-OFF';
+    c.cripto.motivo   = `Fear&Greed ${fg} extremo medo`;
+  }
+  // R5 — Fear 25–35 → CRIPTO máximo NEUTRO
+  else if (fg <= 35 && c.cripto.veredito === 'RISK-ON') {
+    c.cripto.veredito = 'NEUTRO';
+    c.cripto.motivo   = `Fear&Greed ${fg} cautela, aguarda`;
+  }
+
+  // R6 — BTC.D > 58% → CRIPTO = RISK-OFF
+  if (btcd > 58) {
+    c.cripto.veredito = 'RISK-OFF';
+    c.cripto.motivo   = `BTC.D ${btcd.toFixed(1)}% altcoins sem fluxo`;
+  }
+
+  // R8 — MOVE > 100 → downgrade RISK-ON para NEUTRO em todas as classes
+  if (move > 100) {
+    ['cripto', 'acoes_usa', 'acoes_br', 'fiis'].forEach(k => {
+      if (c[k].veredito === 'RISK-ON') {
+        c[k].veredito = 'NEUTRO';
+        c[k].motivo   = `MOVE ${move.toFixed(0)} stress bonds`;
+      }
+    });
+  }
+
+  // Recalcular veredito_global após overrides
+  const vals = ['cripto', 'acoes_usa', 'acoes_br', 'fiis'].map(k => c[k].veredito);
+  const offs  = vals.filter(v => v === 'RISK-OFF').length;
+  const ons   = vals.filter(v => v === 'RISK-ON').length;
+  if (offs >= 3 || (offs >= 2 && vals.includes('NEUTRO'))) {
+    result.veredito_global = 'RISK-OFF';
+  } else if (ons >= 3) {
+    result.veredito_global = 'RISK-ON';
+  } else {
+    result.veredito_global = 'NEUTRO';
+  }
+
+  return result;
 }
 
 function renderMacroResult(a) {
