@@ -3059,6 +3059,7 @@ function loadBrContext() {
 }
 
 function _buildMacroPrompt(d) {
+  console.log('[BR_CONTEXT]', localStorage.getItem('jt_br_context'));
   const fmt = (v, chg) => {
     const val = v != null ? v : '—';
     const c   = chg != null ? ` (${chg >= 0 ? '+' : ''}${chg}%)` : '';
@@ -3191,11 +3192,12 @@ function renderMacroResult(a) {
     ];
     html += `<div class="macro-class-grid">${
       classItems.map(({ key, lbl }) => {
-        const c  = a.classes[key] || { veredito: 'NEUTRO', motivo: '—' };
+        const altKey = key === 'fiis' ? 'fii' : null;
+        const c  = a.classes[key] || (altKey && a.classes[altKey]) || { veredito: 'NEUTRO', motivo: '—' };
         const vv = verdMap[c.veredito] || verdMap['NEUTRO'];
         return `<div class="macro-class-card">
           <div class="macro-class-lbl">${lbl}</div>
-          <div class="macro-class-badge ${vv.cls}">${vv.ico} ${c.veredito}</div>
+          <div class="macro-class-badge ${vv.cls}">${vv.ico} ${c.veredito || 'NEUTRO'}</div>
           <div class="macro-class-motivo">${c.motivo || '—'}</div>
         </div>`;
       }).join('')
