@@ -108,3 +108,14 @@ Leia todos os arquivos do repositório antes de tocar em qualquer coisa.
 
 Confirme o estado atual antes de executar qualquer tarefa.
 
+## Fase 5 — Inteligência do Sistema
+
+Status: Aguardando 30+ operações no Journal
+Arquivo destino: Juanzito_Trader_v4_0.html
+
+Bloco 1 — Análise de padrões vencedores
+Bloco 2 — Alertas de desvio de sistema
+Bloco 3 — Relatório semanal automático
+
+Gate de entrada: 30 ops, win rate ≥ 55%, R:R médio ≥ 1.5
+
